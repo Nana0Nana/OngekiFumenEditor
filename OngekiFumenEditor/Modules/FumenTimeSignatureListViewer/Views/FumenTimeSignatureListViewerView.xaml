@@ -8,6 +8,7 @@
     xmlns:converters2="clr-namespace:OngekiFumenEditor.Modules.FumenTimeSignatureListViewer.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:res="clr-namespace:OngekiFumenEditor.Properties" xmlns:markup="clr-namespace:OngekiFumenEditor.UI.Markup"
     xmlns:system="clr-namespace:System;assembly=System.Runtime"
     xmlns:vm="clr-namespace:OngekiFumenEditor.Modules.FumenTimeSignatureListViewer.ViewModels"
     d:Background="White"
@@ -34,6 +35,7 @@
             <ListView.ItemContainerStyle>
                 <Style TargetType="{x:Type ListViewItem}">
                     <Setter Property="cal:Message.Attach" Value="[Event MouseDoubleClick]=[Action OnItemDoubleClick($dataContext)];[Event PreviewMouseDown]=[Action OnItemSingleClick($dataContext)];" />
+                    <Setter Property="Foreground" Value="{StaticResource EnvironmentToolWindowText}" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.View>
@@ -42,24 +44,25 @@
                         <Style TargetType="GridViewColumnHeader">
                             <Setter Property="Background" Value="Transparent" />
                             <Setter Property="BorderBrush" Value="Transparent" />
+                            <Setter Property="Foreground" Value="{StaticResource EnvironmentToolWindowText}" />
                         </Style>
                     </GridView.ColumnHeaderContainerStyle>
                     <GridViewColumn
                         Width="100"
-                        DisplayMemberBinding="{Binding StartY, Converter={StaticResource IntToTimeDisplayConverter}}"
-                        Header="音频时间" />
+                        DisplayMemberBinding="{Binding StartAudioTime, Converter={StaticResource IntToTimeDisplayConverter}}"
+                        Header="{markup:Translate [AudioTime]}" />
 
                     <GridViewColumn
                         Width="100"
                         DisplayMemberBinding="{Binding StartTGrid}"
-                        Header="音频时间" />
+                        Header="{markup:Translate [AudioTGrid]}" />
 
                     <GridViewColumn
                         Width="100"
                         DisplayMemberBinding="{Binding BPMChange.BPM}"
                         Header="Bpm" />
 
-                    <GridViewColumn Width="100" Header="TimeSignature">
+                    <GridViewColumn Width="100" Header="{markup:Translate [TimeSignature]}">
                         <GridViewColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock>

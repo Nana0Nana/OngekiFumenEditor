@@ -1,105 +1,72 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using OngekiFumenEditor.Base.EditorObjects;
+using OngekiFumenEditor.Base.OngekiObjects.BulletPalleteEnums;
+using OngekiFumenEditor.Base.OngekiObjects.Lane;
+using System;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Media;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
     public class BulletPallete : OngekiObjectBase
     {
-        public enum Shooter
-        {
-            /// <summary>
-            /// 从玩家头顶位置
-            /// </summary>
-            TargetHead = 0,
-            /// <summary>
-            /// 从敌人位置
-            /// </summary>
-            Enemy = 1,
-            /// <summary>
-            /// 谱面中心(?)
-            /// </summary>
-            Center = 2,
-        }
+        public static int RandomSeed { get; set; } = DateTime.Now.ToString().GetHashCode();
 
-        public enum Target
+        public double CalculateToXGridTotalUnit(IBulletPalleteReferencable refObject, OngekiFumen fumen)
         {
-            /// <summary>
-            /// 射向玩家位置
-            /// </summary>
-            Player = 0,
-            /// <summary>
-            /// 射向对应位置，具体看使用的BLT指令的xUnit值
-            /// </summary>
-            FixField = 1
-        }
-
-        public enum BulletSize
-        {
-            /// <summary>
-            /// 普通大小
-            /// </summary>
-            Normal = 0,
-            /// <summary>
-            /// 加大版(是普通版的1.4x)
-            /// </summary>
-            Large = 1,
-        }
-
-        public enum BulletType
-        {
-            /// <summary>
-            /// 圆形子弹
-            /// </summary>
-            Circle = 0,
-            /// <summary>
-            /// 针状子弹
-            /// </summary>
-            Needle = 1,
-            /// <summary>
-            /// 圆柱形(方状)子弹
-            /// </summary>
-            Square = 2,
-        }
-
-        public XGrid CalculateToXGrid(XGrid xGrid, OngekiFumen fumen)
-        {
-            var xUnit = 0f;
-
-            //暂时实现Target.FixField的
-            if (TargetValue == Target.FixField)
+            double xGridTotalUnit;
+            switch (TargetValue)
             {
-                xUnit = xGrid.Unit;
-            }
-            else if (TargetValue == Target.Player)
-            {
-                //写死先
-                xUnit = 0;
+                case Target.Player:
+                    var tGrid = refObject.TGrid;
+                    var apfLane = fumen.Lanes.GetVisibleStartObjects(tGrid, tGrid).OfType<AutoplayFaderLaneStart>().LastOrDefault();
+                    var xGrid = apfLane?.CalulateXGrid(tGrid);
+                    xGridTotalUnit = xGrid?.TotalUnit ?? 0d;
+                    xGridTotalUnit += refObject.XGrid.TotalUnit;
+                    break;
+                case Target.FixField:
+                    xGridTotalUnit = refObject.XGrid.TotalUnit;
+                    break;
+                default:
+                    xGridTotalUnit = 0d;
+                    break;
             }
 
-            xGrid = new XGrid(xUnit);
-            xGrid.NormalizeSelf();
-            return xGrid;
-        }
-
-        public XGrid CalculateFromXGrid(XGrid xGrid, OngekiFumen fumen)
-        {
-            var xUnit = 0f;
-
-            //暂时实现Shooter.TargetHead && Target.FixField的
-            if (ShooterValue == Shooter.TargetHead &
-                TargetValue == Target.FixField)
+            var randomOffset = 0;
+            if (RandomOffsetRange > 0)
             {
-                xUnit = xGrid.Unit;
+                var id = ((OngekiObjectBase)refObject).Id;
+                //不想用Random类，直接异或计算吧
+                var seed = Math.Abs((RandomSeed * id + 123) * id ^ id);
+                var r = RandomOffsetRange;
+                randomOffset = (-r) + (seed % (r - (-r) + 1));
             }
 
-            xUnit += PlaceOffset;
-            xGrid = new XGrid(xUnit);
-            xGrid.NormalizeSelf();
-            return xGrid;
+            return xGridTotalUnit + randomOffset;
+        }
+
+        public double CalculateFromXGridTotalUnit(IBulletPalleteReferencable refObject, OngekiFumen fumen)
+        {
+            double xGridTotalUnit;
+
+            switch (ShooterValue)
+            {
+                case Shooter.TargetHead:
+                    xGridTotalUnit = refObject.XGrid.TotalUnit;
+                    break;
+                case Shooter.Enemy:
+                    var tGrid = refObject.TGrid;
+                    var enemyLane = fumen.Lanes.GetVisibleStartObjects(tGrid, tGrid).OfType<EnemyLaneStart>().LastOrDefault();
+                    var xGrid = enemyLane?.CalulateXGrid(tGrid);
+                    xGridTotalUnit = xGrid?.TotalUnit ?? refObject.XGrid.TotalUnit;
+                    break;
+                case Shooter.Center:
+                default:
+                    xGridTotalUnit = 0d;
+                    break;
+            }
+
+            xGridTotalUnit += PlaceOffset;
+            return xGridTotalUnit;
         }
 
         private string strID = string.Empty;
@@ -157,6 +124,17 @@ namespace OngekiFumenEditor.Base.OngekiObjects
             }
         }
 
+        private int randomOffsetRange = default;
+        public int RandomOffsetRange
+        {
+            get { return randomOffsetRange; }
+            set
+            {
+                randomOffsetRange = value;
+                NotifyOfPropertyChange(() => RandomOffsetRange);
+            }
+        }
+
         private Target targetValue = Target.FixField;
         public Target TargetValue
         {
@@ -193,10 +171,14 @@ namespace OngekiFumenEditor.Base.OngekiObjects
             }
         }
 
+        public bool IsEnableSoflan => TargetValue != Target.Player;
+
+        public override string ToString() => $"{base.ToString()} StrID[{StrID}] Speed[{Speed:F3}] ShooterValue[{ShooterValue}] TargetValue[{TargetValue}] SizeValue[{SizeValue}] TypeValue[{TypeValue}] EditorName[{EditorName}] PlaceOffset[{PlaceOffset}] RandomOffsetRange[{RandomOffsetRange}]";
+
         public static string CommandName => "BPL";
         public override string IDShortName => CommandName;
 
-        public override void Copy(OngekiObjectBase fromObj, OngekiFumen fumen)
+        public override void Copy(OngekiObjectBase fromObj)
         {
             if (fromObj is not BulletPallete fromBpl)
                 return;
@@ -210,6 +192,7 @@ namespace OngekiFumenEditor.Base.OngekiObjects
             ShooterValue = fromBpl.ShooterValue;
             Speed = fromBpl.Speed;
             TargetValue = fromBpl.TargetValue;
+            RandomOffsetRange = fromBpl.RandomOffsetRange;
         }
     }
 }

@@ -1,40 +1,36 @@
 ﻿using OngekiFumenEditor.Base;
-using OngekiFumenEditor.Base.OngekiObjects.ConnectableObject;
 using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using OngekiFumenEditor.Properties;
 using System.Windows;
 
 namespace OngekiFumenEditor.Modules.FumenVisualEditor.Base.DropActions
 {
-    public abstract class EditorAddObjectDropAction : IEditorDropHandler
-    {
-        protected abstract DisplayObjectViewModelBase GetDisplayObject();
+	public abstract class EditorAddObjectDropAction : IEditorDropHandler
+	{
+		protected abstract OngekiObjectBase GetDisplayObject();
 
-        public void Drop(FumenVisualEditorViewModel editor, Point mousePosition)
-        {
-            var displayObject = GetDisplayObject();
-            var isFirst = true;
+		public void Drop(FumenVisualEditorViewModel editor, Point mousePosition)
+		{
+			var displayObject = GetDisplayObject();
+			var isFirst = true;
 
-            editor.UndoRedoManager.ExecuteAction(LambdaUndoAction.Create("添加物件", () =>
-            {
-                editor.AddObject(displayObject);
-                displayObject.MoveCanvas(mousePosition);
-                editor.Redraw(RedrawTarget.OngekiObjects);
+            if (!editor.CheckAndNotifyIfPlaceBeyondDuration(mousePosition))
+                return;
 
-                if (isFirst)
-                {
-                    editor.NotifyObjectClicked(displayObject);
-                    isFirst = false;
-                }
-            }, () =>
-            {
-                editor.RemoveObject(displayObject);
-                editor.Redraw(RedrawTarget.OngekiObjects);
-            }));
-        }
-    }
+            editor.UndoRedoManager.ExecuteAction(LambdaUndoAction.Create(Resources.AddObject, () =>
+			{
+				editor.MoveObjectTo(displayObject, mousePosition);
+				editor.Fumen.AddObject(displayObject);
+
+				if (isFirst)
+				{
+					editor.NotifyObjectClicked(displayObject);
+					isFirst = false;
+				}
+			}, () =>
+			{
+				editor.RemoveObject(displayObject);
+			}));
+		}
+	}
 }

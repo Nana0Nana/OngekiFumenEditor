@@ -1,73 +1,148 @@
-﻿using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
-using System;
+﻿using OngekiFumenEditor.Base.EditorObjects;
+using OngekiFumenEditor.Utils;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
-    public class Soflan : OngekiTimelineObjectBase
-    {
-        public class SoflanEndIndicator : OngekiTimelineObjectBase
+	public class Soflan : OngekiTimelineObjectBase, IDurationSoflan
+	{
+		public class SoflanEndIndicator : OngekiTimelineObjectBase
+		{
+			public SoflanEndIndicator()
+			{
+				TGrid = null;
+			}
+
+			public override string IDShortName => "[SFL_End]";
+
+			public Soflan RefSoflan { get; internal protected set; }
+
+			public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => IDisplayableObject.EmptyDisplayable;
+
+			public override TGrid TGrid
+			{
+				get => base.TGrid is null ? RefSoflan.TGrid.CopyNew() : base.TGrid;
+				set => base.TGrid = value is not null ? MathUtils.Max(value, RefSoflan.TGrid.CopyNew()) : value;
+			}
+
+			public override string ToString() => $"{base.ToString()}";
+		}
+
+		protected IDisplayableObject[] displayables;
+
+		public Soflan()
+		{
+			EndIndicator = new SoflanEndIndicator() { RefSoflan = this };
+			EndIndicator.PropertyChanged += EndIndicator_PropertyChanged;
+			displayables = new IDisplayableObject[] { this, EndIndicator };
+		}
+
+		public override TGrid TGrid
+		{
+			get => base.TGrid;
+			set
+			{
+				base.TGrid = value;
+				if (value is not null)
+					EndIndicator.TGrid = MathUtils.Max(value.CopyNew(), EndIndicator.TGrid);
+			}
+		}
+
+		private void EndIndicator_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		{
+			switch (e.PropertyName)
+			{
+				case nameof(TGrid):
+					NotifyOfPropertyChange(nameof(EndTGrid));
+					break;
+				default:
+					NotifyOfPropertyChange(nameof(EndIndicator));
+					break;
+			}
+		}
+
+		public override string IDShortName => $"SFL";
+
+		public SoflanEndIndicator EndIndicator { get; protected set; }
+
+		public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => displayables;
+
+		private float speed = 1;
+		public float Speed
+		{
+			get => speed;
+			set => Set(ref speed, value);
+		}
+
+		private bool applySpeedInDesignMode = false;
+		public bool ApplySpeedInDesignMode
+		{
+			get => applySpeedInDesignMode;
+			set => Set(ref applySpeedInDesignMode, value);
+		}
+
+		public float SpeedInEditor => ApplySpeedInDesignMode ? speed : 1;
+
+		public TGrid EndTGrid
+		{
+			get => EndIndicator.TGrid;
+			set => EndIndicator.TGrid = value;
+		}
+
+		public int GridLength => EndIndicator.TGrid.TotalGrid - TGrid.TotalGrid;
+
+		public override string ToString() => $"{base.ToString()} Speed[{speed}x]";
+
+		public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
+		{
+			if (maxVisibleTGrid < TGrid)
+				return false;
+
+			if (EndIndicator.TGrid < minVisibleTGrid)
+				return false;
+
+			return true;
+		}
+
+        public override void Copy(OngekiObjectBase fromObj)
         {
-            public override Type ModelViewType => typeof(SoflanEndIndicatorViewModel);
+            base.Copy(fromObj);
 
-            public override string IDShortName => "[SFL_End]";
+			if (fromObj is not Soflan soflan)
+				return;
 
-            public Soflan RefSoflan { get; internal protected set; }
-
-            public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => IDisplayableObject.EmptyDisplayable;
-
-            public override TGrid TGrid
-            {
-                get => base.TGrid.TotalGrid <= 0 ? (TGrid = RefSoflan.TGrid.CopyNew()) : base.TGrid;
-                set => base.TGrid = value;
-            }
-
-            public override string ToString() => $"{base.ToString()}";
+            Speed = soflan.Speed;
+            ApplySpeedInDesignMode = soflan.ApplySpeedInDesignMode;
         }
 
-        private IDisplayableObject[] displayables;
+        public virtual void CopyEntire(Soflan from)
+		{
+			Copy(from);
 
-        public Soflan()
-        {
-            EndIndicator = new SoflanEndIndicator() { RefSoflan = this };
-            displayables = new IDisplayableObject[] { this, EndIndicator };
-        }
+			EndIndicator.Copy(from.EndIndicator);
+		}
 
-        public override Type ModelViewType => typeof(SoflanViewModel);
-        public override string IDShortName => $"SFL";
+		public virtual IEnumerable<IKeyframeSoflan> GenerateKeyframeSoflans()
+		{
+			yield return new KeyframeSoflan()
+			{
+				TGrid = TGrid,
+				Speed = Speed,
+				ApplySpeedInDesignMode = ApplySpeedInDesignMode
+			};
+			yield return new KeyframeSoflan()
+			{
+				TGrid = EndTGrid,
+				Speed = 1,
+				ApplySpeedInDesignMode = ApplySpeedInDesignMode
+			};
+		}
 
-        public SoflanEndIndicator EndIndicator { get; }
-
-        public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => displayables;
-
-        private float speed = 1;
-        public float Speed
-        {
-            get => speed;
-            set => Set(ref speed, value);
-        }
-
-        public TGrid EndTGrid
-        {
-            get => EndIndicator.TGrid;
-        }
-
-        public int GridLength => EndIndicator.TGrid.TotalGrid - TGrid.TotalGrid;
-
-        public override string ToString() => $"{base.ToString()} Speed:{speed}";
-
-        public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
-        {
-            if (maxVisibleTGrid < TGrid)
-                return false;
-
-            if (EndIndicator.TGrid < minVisibleTGrid)
-                return false;
-
-            return true;
-        }
-    }
+		public virtual float CalculateSpeed(TGrid tGrid)
+		{
+			if (TGrid <= tGrid && tGrid <= EndTGrid)
+				return Speed;
+			return 1;
+		}
+	}
 }

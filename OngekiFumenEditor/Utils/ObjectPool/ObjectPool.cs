@@ -1,116 +1,111 @@
 ﻿using Caliburn.Micro;
-using OngekiFumenEditor.Kernel.Scheduler;
-using OngekiFumenEditor.Utils.ObjectPool;
 using System;
-using System.Collections.Generic;
-using System.ComponentModel.Composition;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace OngekiFumenEditor.Utils.ObjectPool
 {
-    public class ObjectPool<T> : ObjectPoolBase where T : new()
-    {
-        #region AutoImpl
+	public class ObjectPool<T> : ObjectPoolBase where T : new()
+	{
+		#region AutoImpl
 
-        private static ObjectPool<T> instance;
-        private static ObjectPool<T> Instance
-        {
-            get
-            {
-                if (instance == null)
-                {
-                    instance = new ObjectPool<T>();
-                    IoC.Get<ObjectPoolManager>().RegisterNewObjectPool(instance);
-                }
+		private static ObjectPool<T> instance;
+		private static ObjectPool<T> Instance
+		{
+			get
+			{
+				if (instance == null)
+				{
+					instance = new ObjectPool<T>();
+					IoC.Get<ObjectPoolManager>().RegisterNewObjectPool(instance);
+				}
 
-                return instance;
-            }
-        }
+				return instance;
+			}
+		}
 
-        #endregion
+		#endregion
 
-        private HashSet<T> cache_obj = new HashSet<T>();
+		private ConcurrentBag<T> cache_obj = new ConcurrentBag<T>();
 
-        public static bool EnableTrim { get; set; } = true;
+		public static bool EnableTrim { get; set; } = true;
+		public override int CachingObjectCount => cache_obj.Count;
 
-        public override int CachingObjectCount => cache_obj.Count;
+		protected override void OnReduceObjects()
+		{
+			if (!EnableTrim)
+				return;
+			var cachingObjectCount = CachingObjectCount;
 
-        protected override void OnReduceObjects()
-        {
-            if (!EnableTrim)
-                return;
+			var count = cachingObjectCount > MaxTempCache ?
+				(MaxTempCache + ((cachingObjectCount - MaxTempCache) / 2)) :
+				cachingObjectCount / 4; ;
 
-            var count = CachingObjectCount > MaxTempCache ?
-                (MaxTempCache + ((CachingObjectCount - MaxTempCache) / 2)) :
-                CachingObjectCount / 4; ;
+			for (int i = 0; i < count / 2; i++)
+				if (!cache_obj.TryTake(out _))
+					break;
+		}
 
-            for (int i = 0; i < count / 2; i++)
-                cache_obj.Remove(cache_obj.First());
-        }
+		#region Sugar~
 
-        #region Sugar~
+		private class AutoDisposable : IDisposable
+		{
+			public T RefObject { get; set; }
 
-        private class AutoDisposable : IDisposable
-        {
-            public T RefObject { get; set; }
+			public void Dispose()
+			{
+				if (RefObject is not null)
+					Return(RefObject);
+				RefObject = default;
+				ObjectPool<AutoDisposable>.Return(this);
+			}
+		}
 
-            public void Dispose()
-            {
-                if (RefObject is not null)
-                    Return(RefObject);
-                RefObject = default;
-                ObjectPool<AutoDisposable>.Return(this);
-            }
-        }
+		public static IDisposable GetWithUsingDisposable(out T obj, out bool isNewObject)
+		{
+			isNewObject = Get(out obj);
+			var d = ObjectPool<AutoDisposable>.Get();
+			d.RefObject = obj;
+			return d;
+		}
 
-        public static IDisposable GetWithUsingDisposable(out T obj, out bool isNewObject)
-        {
-            isNewObject = Get(out obj);
-            var d = ObjectPool<AutoDisposable>.Get();
-            d.RefObject = obj;
-            return d;
-        }
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="obj">gained object</param>
+		/// <returns>it's a new object if returns true</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool Get(out T obj) => Instance.GetInternal(out obj);
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="obj">gained object</param>
-        /// <returns>it's a new object if returns true</returns>
-        public static bool Get(out T obj)
-        {
-            var cache_obj = Instance.cache_obj;
+		private bool GetInternal(out T obj)
+		{
+			var isSuccess = cache_obj.TryTake(out obj);
+			if (isSuccess)
+				(obj as ICacheCleanable)?.OnBeforeGetClean();
+			else
+				obj = new T();
 
-            if (cache_obj.Count == 0)
-            {
-                obj = new T();
-                return true;
-            }
+			return !isSuccess;
+		}
 
-            obj = cache_obj.First();
-            cache_obj.Remove(obj);
+		public static T Get()
+		{
+			Get(out var t);
+			return t;
+		}
 
-            (obj as ICacheCleanable)?.OnBeforeGetClean();
-            return false;
-        }
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void Return(T obj) => Instance.ReturnInternal(obj);
 
-        public static T Get()
-        {
-            Get(out var t);
-            return t;
-        }
+		private void ReturnInternal(T obj)
+		{
+			if (obj == null)
+				return;
 
-        public static void Return(T obj)
-        {
-            if (obj == null)
-                return;
+			cache_obj.Add(obj);
+			(obj as ICacheCleanable)?.OnAfterPutClean();
+		}
 
-            Instance.cache_obj.Add(obj);
-            (obj as ICacheCleanable)?.OnAfterPutClean();
-        }
-
-        #endregion
-    }
+		#endregion
+	}
 }

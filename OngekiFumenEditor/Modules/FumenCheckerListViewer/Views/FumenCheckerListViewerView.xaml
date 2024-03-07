@@ -6,7 +6,9 @@
     xmlns:controls="clr-namespace:OngekiFumenEditor.UI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="clr-namespace:OngekiFumenEditor.Modules.FumenCheckerListViewer.ViewModels"
+    xmlns:markup="clr-namespace:OngekiFumenEditor.UI.Markup"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:res="clr-namespace:OngekiFumenEditor.Properties"
     xmlns:system="clr-namespace:System;assembly=System.Runtime"
     d:DataContext="{d:DesignInstance Type=local:FumenCheckerListViewerViewModel}"
     d:DesignHeight="300"
@@ -24,8 +26,8 @@
                 Margin="0,0,5,0"
                 Padding="20,2,20,2"
                 cal:Message.Attach="[Event Click] = [Action RefreshCurrentFumen()];"
+                Content="{markup:Translate [Refresh]}"
                 IsEnabled="{Binding IsEnable, Mode=OneWay}">
-                刷新
             </Button>
             <ToggleButton
                 Background="Transparent"
@@ -44,9 +46,9 @@
                         Margin="5,0,0,0"
                         Padding="10,2,10,2"
                         VerticalAlignment="Center">
-                        <Run Text="错误">
+                        <Run Text="{markup:Translate [Error]}">
                         </Run>
-                        <Run Text="{Binding ErrorCount, Mode=OneWay, StringFormat={}{0} 个}" />
+                        <Run Text="{Binding ErrorCount, Mode=OneWay}" />
                         <Run>
                             <Run.Style>
                                 <Style TargetType="Run">
@@ -55,7 +57,7 @@
                                             <Setter Property="Text" Value="" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding EnableShowError}" Value="False">
-                                            <Setter Property="Text" Value="(不显示)" />
+                                            <Setter Property="Text" Value="{markup:Translate [NotShow]}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -82,9 +84,9 @@
                         Margin="5,0,0,0"
                         Padding="10,2,10,2"
                         VerticalAlignment="Center">
-                        <Run Text="问题">
+                        <Run Text="{markup:Translate [Problem]}">
                         </Run>
-                        <Run Text="{Binding ProblemCount, Mode=OneWay, StringFormat={}{0} 个}" />
+                        <Run Text="{Binding ProblemCount, Mode=OneWay}" />
                         <Run>
                             <Run.Style>
                                 <Style TargetType="Run">
@@ -93,7 +95,7 @@
                                             <Setter Property="Text" Value="" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding EnableShowProblem}" Value="False">
-                                            <Setter Property="Text" Value="(不显示)" />
+                                            <Setter Property="Text" Value="{markup:Translate [NotShow]}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -120,9 +122,9 @@
                         Margin="5,0,0,0"
                         Padding="10,2,10,2"
                         VerticalAlignment="Center">
-                        <Run Text="建议">
+                        <Run Text="{markup:Translate [Advice]}">
                         </Run>
-                        <Run Text="{Binding SuggestCount, Mode=OneWay, StringFormat={}{0} 个}" />
+                        <Run Text="{Binding SuggestCount, Mode=OneWay}" />
                         <Run>
                             <Run.Style>
                                 <Style TargetType="Run">
@@ -131,7 +133,7 @@
                                             <Setter Property="Text" Value="" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding EnableShowSuggest}" Value="False">
-                                            <Setter Property="Text" Value="(不显示)" />
+                                            <Setter Property="Text" Value="{markup:Translate [NotShow]}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -153,6 +155,7 @@
                 <Style TargetType="ListViewItem">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     <Setter Property="cal:Message.Attach" Value="[Event MouseDoubleClick]=[Action OnItemDoubleClick($dataContext)];" />
+                    <Setter Property="Foreground" Value="{StaticResource EnvironmentToolWindowText}" />
                 </Style>
             </ListView.Resources>
             <ListView.View>
@@ -161,34 +164,35 @@
                         <Style TargetType="GridViewColumnHeader">
                             <Setter Property="Background" Value="Transparent" />
                             <Setter Property="BorderBrush" Value="Transparent" />
+                            <Setter Property="Foreground" Value="{StaticResource EnvironmentToolWindowText}" />
                         </Style>
                     </GridView.ColumnHeaderContainerStyle>
 
                     <GridViewColumn
                         Width="120"
                         DisplayMemberBinding="{Binding Severity}"
-                        Header="严重程度">
+                        Header="{markup:Translate [Severity]}">
 
                     </GridViewColumn>
 
                     <GridViewColumn
                         Width="100"
                         DisplayMemberBinding="{Binding RuleName}"
-                        Header="检查规则">
+                        Header="{markup:Translate [RuleName]}">
 
                     </GridViewColumn>
 
                     <GridViewColumn
                         Width="400"
                         DisplayMemberBinding="{Binding Description}"
-                        Header="描述">
+                        Header="{markup:Translate [Description]}">
 
                     </GridViewColumn>
 
                     <GridViewColumn
                         Width="200"
                         DisplayMemberBinding="{Binding LocationDescription}"
-                        Header="错误位置">
+                        Header="{markup:Translate [WrongLocation2]}">
 
                     </GridViewColumn>
                 </GridView>

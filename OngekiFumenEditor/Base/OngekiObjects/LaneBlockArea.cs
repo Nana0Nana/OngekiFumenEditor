@@ -1,104 +1,126 @@
-﻿using OngekiFumenEditor.Base.EditorObjects;
-using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
+﻿using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
 using OngekiFumenEditor.Utils;
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
-    public class LaneBlockArea : OngekiTimelineObjectBase
-    {
-        public enum BlockDirection
-        {
-            Left = 1,
-            Right = -1
-        }
+	public class LaneBlockArea : OngekiTimelineObjectBase
+	{
+		public enum BlockDirection
+		{
+			Left = 1,
+			Right = -1
+		}
 
-        public class LaneBlockAreaEndIndicator : OngekiTimelineObjectBase
-        {
-            public override Type ModelViewType => typeof(LaneBlockAreaEndIndicatorViewModel);
+		public class LaneBlockAreaEndIndicator : OngekiTimelineObjectBase
+		{
+			public override string IDShortName => "[LBK_End]";
 
-            public override string IDShortName => "[LBK_End]";
+			public LaneBlockArea RefLaneBlockArea { get; internal protected set; }
 
-            public LaneBlockArea RefLaneBlockArea { get; internal protected set; }
+			public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => IDisplayableObject.EmptyDisplayable;
 
-            public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => IDisplayableObject.EmptyDisplayable;
+			private bool tGridHasSet;
 
-            public override TGrid TGrid
-            {
-                get => base.TGrid.TotalGrid <= 0 ? (TGrid = RefLaneBlockArea.TGrid.CopyNew()) : base.TGrid;
-                set => base.TGrid = value;
-            }
+			public override TGrid TGrid
+			{
+				get
+				{
+					if (!tGridHasSet)
+					{
+						TGrid = RefLaneBlockArea.TGrid.CopyNew();
+						return TGrid;
+					}
+					return base.TGrid;
+				}
+				set
+				{
+					base.TGrid = value is not null ? MathUtils.Max(value, RefLaneBlockArea.TGrid.CopyNew()) : value;
+					tGridHasSet = true;
+				}
+			}
 
-            public override string ToString() => $"{base.ToString()}";
-        }
+			public override string ToString() => $"{base.ToString()}";
+		}
 
-        private IDisplayableObject[] displayables;
+		private IDisplayableObject[] displayables;
 
-        public LaneBlockArea()
-        {
-            EndIndicator = new LaneBlockAreaEndIndicator() { RefLaneBlockArea = this };
-            connector = new LaneBlockLaneDecoration() { From = this, To = EndIndicator };
-            displayables = new IDisplayableObject[] { connector, this, EndIndicator };
-        }
+		public LaneBlockArea()
+		{
+			EndIndicator = new LaneBlockAreaEndIndicator() { RefLaneBlockArea = this };
+			EndIndicator.PropertyChanged += EndIndicator_PropertyChanged;
+			displayables = new IDisplayableObject[] { this, EndIndicator };
+		}
 
-        public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => displayables;
+		public override TGrid TGrid
+		{
+			get => base.TGrid;
+			set
+			{
+				base.TGrid = value;
+				if (value is not null)
+					EndIndicator.TGrid = MathUtils.Max(value.CopyNew(), EndIndicator.TGrid);
+			}
+		}
 
-        public override string IDShortName => "LBK";
+		private void EndIndicator_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		{
+			NotifyOfPropertyChange(e.PropertyName);
+		}
 
-        private LaneBlockLaneDecoration connector;
-        public LaneBlockAreaEndIndicator EndIndicator { get; }
+		public override IEnumerable<IDisplayableObject> GetDisplayableObjects() => displayables;
 
-        private BlockDirection direction = BlockDirection.Left;
-        public BlockDirection Direction
-        {
-            get => direction;
-            set => Set(ref direction, value);
-        }
+		public override string IDShortName => "LBK";
 
-        public override Type ModelViewType => typeof(LaneBlockAreaViewModel);
+		public LaneBlockAreaEndIndicator EndIndicator { get; }
 
-        public (LaneStartBase startWallLane, LaneStartBase endWallLane) CalculateReferenceWallLanes(OngekiFumen fumen)
-        {
-            var wallType = Direction == BlockDirection.Left ? LaneType.WallLeft : LaneType.WallRight;
+		private BlockDirection direction = BlockDirection.Left;
+		public BlockDirection Direction
+		{
+			get => direction;
+			set => Set(ref direction, value);
+		}
 
-            var blockStartTGrid = TGrid;
-            var blockEndTGrid = EndIndicator.TGrid;
+		public (LaneStartBase startWallLane, LaneStartBase endWallLane) CalculateReferenceWallLanes(OngekiFumen fumen)
+		{
+			var wallType = Direction == BlockDirection.Left ? LaneType.WallLeft : LaneType.WallRight;
 
-            var startWallLane = fumen.Lanes.Where(x => x.LaneType == wallType).LastOrDefault(x => x.TGrid <= blockStartTGrid);
-            var endWallLane = fumen.Lanes.Where(x => x.LaneType == wallType).LastOrDefault(x => x.TGrid <= blockEndTGrid);
+			var blockStartTGrid = TGrid;
+			var blockEndTGrid = EndIndicator.TGrid;
 
-            return (startWallLane, endWallLane);
-        }
+			var startWallLane = fumen.Lanes.Where(x => x.LaneType == wallType).LastOrDefault(x => x.TGrid <= blockStartTGrid);
+			var endWallLane = fumen.Lanes.Where(x => x.LaneType == wallType).LastOrDefault(x => x.TGrid <= blockEndTGrid);
 
-        public override string ToString() => $"{base.ToString()} {Direction} End:({EndIndicator})";
+			return (startWallLane, endWallLane);
+		}
 
-        public IEnumerable<LaneStartBase> GetAffactableWallLanes(OngekiFumen fumen)
-        {
-            var blockStartTGrid = TGrid;
-            var blockEndTGrid = EndIndicator.TGrid;
-            var wallType = Direction == BlockDirection.Left ? LaneType.WallLeft : LaneType.WallRight;
+		public override string ToString() => $"{base.ToString()} Direction[{Direction}] End[{EndIndicator}]";
 
-            return fumen.Lanes.Where(x =>
-                x.LaneType == wallType &&
-                x.MaxTGrid > blockStartTGrid &&
-                x.MinTGrid < blockEndTGrid
-            );
-        }
+		public IEnumerable<LaneStartBase> GetAffactableWallLanes(OngekiFumen fumen)
+		{
+			var blockStartTGrid = TGrid;
+			var blockEndTGrid = EndIndicator.TGrid;
+			var wallType = Direction == BlockDirection.Left ? LaneType.WallLeft : LaneType.WallRight;
+			return fumen.Lanes.GetVisibleStartObjects(blockStartTGrid, blockEndTGrid).Where(x => x.LaneType == wallType);
+		}
 
-        public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
-        {
-            if (maxVisibleTGrid < TGrid)
-                return false;
+		public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
+		{
+			if (maxVisibleTGrid < TGrid)
+				return false;
 
-            if (EndIndicator.TGrid < minVisibleTGrid)
-                return false;
+			if (EndIndicator.TGrid < minVisibleTGrid)
+				return false;
 
-            return true;
-        }
-    }
+			return true;
+		}
+
+		public void CopyEntire(LaneBlockArea from)
+		{
+			Copy(from);
+			Direction = from.Direction;
+			EndIndicator.Copy(from.EndIndicator);
+		}
+	}
 }

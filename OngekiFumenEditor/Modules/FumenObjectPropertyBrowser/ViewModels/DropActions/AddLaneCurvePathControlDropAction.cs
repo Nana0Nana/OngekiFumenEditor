@@ -4,11 +4,7 @@ using OngekiFumenEditor.Modules.FumenVisualEditor;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Base;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Base.DropActions;
 using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using OngekiFumenEditor.Properties;
 using System.Windows;
 
 namespace OngekiFumenEditor.Modules.FumenObjectPropertyBrowser.ViewModels.DropActions
@@ -26,25 +22,26 @@ namespace OngekiFumenEditor.Modules.FumenObjectPropertyBrowser.ViewModels.DropAc
 
         public void Drop(FumenVisualEditorViewModel editor, Point dragEndPoint)
         {
-            var dragTGrid = TGridCalculator.ConvertYToTGrid(dragEndPoint.Y, editor);
+            if (!editor.CheckAndNotifyIfPlaceBeyondDuration(dragEndPoint))
+                return;
+
+            var dragTGrid = TGridCalculator.ConvertYToTGrid_DesignMode(dragEndPoint.Y, editor);
             var dragXGrid = XGridCalculator.ConvertXToXGrid(dragEndPoint.X, editor);
             var isFirst = true;
 
-            editor.UndoRedoManager.ExecuteAction(LambdaUndoAction.Create("添加曲线控制点", () =>
+            editor.UndoRedoManager.ExecuteAction(LambdaUndoAction.Create(Resources.AddCurveControlPoint, () =>
             {
                 cachePathControl.TGrid = dragTGrid;
                 cachePathControl.XGrid = dragXGrid;
                 curveObject.AddControlObject(cachePathControl);
-                editor.Redraw(RedrawTarget.OngekiObjects);
                 if (isFirst)
                 {
-                    editor.NotifyObjectClicked(editor.EditorViewModels.FirstOrDefault(x=>x.DisplayableObject == cachePathControl) as DisplayObjectViewModelBase);
+                    editor.NotifyObjectClicked(cachePathControl);
                     isFirst = false;
                 }
             }, () =>
             {
                 curveObject.RemoveControlObject(cachePathControl);
-                editor.Redraw(RedrawTarget.OngekiObjects);
             }));
         }
     }

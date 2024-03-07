@@ -1,10 +1,6 @@
 ﻿using Gemini.Modules.Output;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.Composition;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using static OngekiFumenEditor.Utils.Logs.ILogOutput;
 
 namespace OngekiFumenEditor.Utils.Logs.DefaultImpls
 {
@@ -14,7 +10,7 @@ namespace OngekiFumenEditor.Utils.Logs.DefaultImpls
         [Import(typeof(IOutput))]
         private IOutput output = default;
 
-        public void WriteLog(string content)
+        public void WriteLog(Severity severity , string content)
         {
             output.Append(content);
         }

@@ -1,220 +1,499 @@
-using Caliburn.Micro;
+Ôªøusing Caliburn.Micro;
 using Gemini.Framework;
 using OngekiFumenEditor.Base;
+using OngekiFumenEditor.Base.Collections;
 using OngekiFumenEditor.Base.OngekiObjects;
-using OngekiFumenEditor.Modules.FumenVisualEditor.Base;
+using OngekiFumenEditor.Base.OngekiObjects.Beam;
+using OngekiFumenEditor.Kernel.Graphics;
+using OngekiFumenEditor.Kernel.Graphics.Performence;
+using OngekiFumenEditor.Kernel.Scheduler;
+using OngekiFumenEditor.Modules.FumenVisualEditor.Graphics;
+using OngekiFumenEditor.Modules.FumenVisualEditor.Graphics.Drawing;
+using OngekiFumenEditor.Modules.FumenVisualEditor.Graphics.Drawing.Editors;
 using OngekiFumenEditor.UI.Controls;
 using OngekiFumenEditor.Utils;
 using OngekiFumenEditor.Utils.ObjectPool;
+using OpenTK.Graphics.OpenGL;
+using OpenTK.Mathematics;
+using OpenTK.Wpf;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
+using static OngekiFumenEditor.Kernel.Graphics.IDrawingContext;
+using static OngekiFumenEditor.Modules.FumenVisualEditor.Graphics.Drawing.Editors.DrawXGridHelper;
 
 namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
 {
-    public partial class FumenVisualEditorViewModel : PersistedDocument
+    public partial class FumenVisualEditorViewModel : PersistedDocument, ISchedulable, IFumenEditorDrawingContext
     {
-        public ObservableCollection<IEditorDisplayableViewModel> CurrentDisplayEditorViewModels { get; } = new();
+        private IPerfomenceMonitor dummyPerformenceMonitor = new DummyPerformenceMonitor();
+        private IPerfomenceMonitor actualPerformenceMonitor;
+
+        private DrawTimeSignatureHelper timeSignatureHelper;
+        private DrawXGridHelper xGridHelper;
+        private DrawJudgeLineHelper judgeLineHelper;
+        private DrawSelectingRangeHelper selectingRangeHelper;
+        private DrawPlayableAreaHelper playableAreaHelper;
+
+        private Func<double, FumenVisualEditorViewModel, double> convertToY = TGridCalculator.ConvertTGridUnitToY_DesignMode;
+
+        private StringBuilder stringBuilder = new StringBuilder(2048);
+
+        private List<CacheDrawXLineResult> cachedMagneticXGridLines = new();
+        public IEnumerable<CacheDrawXLineResult> CachedMagneticXGridLines => cachedMagneticXGridLines;
+
+        private int renderViewWidth;
+        private int renderViewHeight;
+        private System.Numerics.Vector4 playFieldBackgroundColor;
+        private bool enablePlayFieldDrawing;
+        private float viewWidth = 0;
+        public float ViewWidth
+        {
+            get => viewWidth;
+            set
+            {
+                Set(ref viewWidth, value);
+                RecalcViewProjectionMatrix();
+            }
+        }
+
+        private float viewHeight = 0;
+        public float ViewHeight
+        {
+            get => viewHeight;
+            set
+            {
+                Set(ref viewHeight, value);
+                RecalcViewProjectionMatrix();
+            }
+        }
+
+        public TimeSpan CurrentPlayTime { get; private set; } = TimeSpan.FromSeconds(0);
+
+        private bool isDisplayFPS = false;
+        public bool IsDisplayFPS
+        {
+            get => isDisplayFPS;
+            set
+            {
+                Set(ref isDisplayFPS, value);
+                PerfomenceMonitor = value ? actualPerformenceMonitor : dummyPerformenceMonitor;
+            }
+        }
+
+        private string displayFPS = "";
+        public string DisplayFPS
+        {
+            get => displayFPS;
+            set
+            {
+                displayFPS = value;
+                NotifyOfPropertyChange(() => DisplayFPS);
+            }
+        }
+
+        public Matrix4 ViewMatrix { get; private set; }
+        public Matrix4 ProjectionMatrix { get; private set; }
+        public Matrix4 ViewProjectionMatrix { get; private set; }
+
+        public string SchedulerName => "Fumen Previewer Performance Statictis";
+
+        public TimeSpan ScheduleCallLoopInterval => TimeSpan.FromSeconds(1);
+
+        public FumenVisualEditorViewModel Editor => this;
+
+        public VisibleRect Rect { get; set; } = default;
+
+        public IPerfomenceMonitor PerfomenceMonitor { get; private set; } = new DummyPerformenceMonitor();
+
+        private static Dictionary<string, IFumenEditorDrawingTarget[]> drawTargets = new();
+        private IFumenEditorDrawingTarget[] drawTargetOrder;
+        private Dictionary<IFumenEditorDrawingTarget, IEnumerable<OngekiTimelineObjectBase>> drawMap = new();
 
         protected override void OnViewLoaded(object v)
         {
             base.OnViewLoaded(v);
-            RedrawUnitCloseXLines();
+            InitExtraMenuItems();
         }
 
-        private void RedrawTimeline()
+        private void RecalcViewProjectionMatrix()
         {
-            using var __ = TGridUnitLineLocations.ToHashSetWithObjectPool(out var removeUnusedSet);
-            var reuse = 0;
-            var addnew = 0;
-            void TryAddUnitLine(TGrid tGrid, double y, int i)
-            {
-                //Log.LogDebug($"add to {tGrid} {y:F2} {i}");
-                if (removeUnusedSet.FirstOrDefault(x => x.Y == y) is TGridUnitLineViewModel lineModel)
-                {
-                    removeUnusedSet.Remove(lineModel);
-                    lineModel.TGrid = tGrid;
-                    lineModel.BeatRhythm = i;
-                    reuse++;
-                }
-                else
-                {
-                    var newLineModel = ObjectPool<TGridUnitLineViewModel>.Get();
-                    newLineModel.TGrid = tGrid;
-                    newLineModel.BeatRhythm = i;
-                    newLineModel.Y = y;
+            var xOffset = 0;
 
-                    TGridUnitLineLocations.InsertBySortBy(newLineModel, x => x.Y);
-                    addnew++;
-                }
-            }
+            var y = (float)convertToY(GetCurrentTGrid().TotalUnit, this);
 
-            foreach ((TGrid tGrid, double y, int i) in TGridCalculator.GetVisbleTimelines(this, 240))
-            {
-                TryAddUnitLine(tGrid, TotalDurationHeight - y, i);
-            }
+            ProjectionMatrix =
+                Matrix4.CreateOrthographic(ViewWidth, ViewHeight, -1, 1);
+            ViewMatrix =
+                Matrix4.CreateTranslation(new Vector3(-ViewWidth / 2 + xOffset, -y - ViewHeight / 2 + (float)Setting.JudgeLineOffsetY, 0));
 
-            //…æ≥˝≤ª”√µƒ
-            foreach (var unusedLine in removeUnusedSet)
-            {
-                ObjectPool<TGridUnitLineViewModel>.Return(unusedLine);
-                TGridUnitLineLocations.Remove(unusedLine);
-            }
-
-            //Log.LogDebug($"AddCount:{reuse + addnew} , reuse ({reuse * 1.0 / (reuse + addnew) * 100:F2}%): {reuse} , addnew: {addnew} ,unused: {removeUnusedSet.Count}");
-            removeUnusedSet.Clear();
+            ViewProjectionMatrix = ViewMatrix * ProjectionMatrix;
         }
 
-        private void RedrawEditorObjects()
+        public void OnRenderSizeChanged(GLWpfControl glView, SizeChangedEventArgs sizeArg)
         {
-            if (Fumen is null || CanvasHeight == 0)
-                return;
-            //Log.LogDebug($"begin");
-            var min = TGridCalculator.ConvertYToTGrid(MinVisibleCanvasY, this) ?? new TGrid(0, 0);
-            var max = TGridCalculator.ConvertYToTGrid(MaxVisibleCanvasY, this);
+            Log.LogDebug($"new size: {sizeArg.NewSize} , glView.RenderSize = {glView.RenderSize}");
 
-            //Log.LogDebug($"begin:({begin})  end:({end})  base:({Setting.CurrentDisplayTimePosition})");
-            using var d = ObjectPool<HashSet<IDisplayableObject>>.GetWithUsingDisposable(out var currentDisplayingObjects, out var _);
-            currentDisplayingObjects.Clear();
-            using var d2 = ObjectPool<HashSet<IDisplayableObject>>.GetWithUsingDisposable(out var allDisplayableObjects, out var _);
-            allDisplayableObjects.Clear();
-            using var d3 = ObjectPool<HashSet<IEditorDisplayableViewModel>>.GetWithUsingDisposable(out var removeObjects, out var _);
-            removeObjects.Clear();
+            var dpiX = VisualTreeHelper.GetDpi(Application.Current.MainWindow).DpiScaleX;
+            var dpiY = VisualTreeHelper.GetDpi(Application.Current.MainWindow).DpiScaleY;
 
-            Fumen.GetAllDisplayableObjects(min, max)
-                .Concat(CurrentSelectedObjects.OfType<OngekiObjectBase>().Where(x => Fumen.Contains(x))
-                .OfType<IDisplayableObject>())
-                .Distinct()
-                .ForEach(x => allDisplayableObjects.Add(x));
-            EditorViewModels.OfType<IEditorDisplayableViewModel>().ForEach(x => currentDisplayingObjects.Add(x.DisplayableObject));
+            ViewWidth = (float)sizeArg.NewSize.Width;
+            ViewHeight = (float)sizeArg.NewSize.Height;
+            renderViewWidth = (int)(sizeArg.NewSize.Width * dpiX);
+            renderViewHeight = (int)(sizeArg.NewSize.Height * dpiY);
+        }
 
-            //ºÏ≤Èµ±«∞œ‘ æµƒŒÔº˛ «∑Òªπ‘⁄∆◊√Ê÷–£¨≤ª‘⁄æÕ…æ≥˝£¨‘⁄æÕ∏¸–¬Œª÷√
-            foreach (var viewModel in EditorViewModels.OfType<IEditorDisplayableViewModel>())
+        public async void PrepareRender(GLWpfControl openGLView)
+        {
+            Log.LogDebug($"ready.");
+            await IoC.Get<IDrawingManager>().CheckOrInitGraphics();
+
+            var dpiX = VisualTreeHelper.GetDpi(Application.Current.MainWindow).DpiScaleX;
+            var dpiY = VisualTreeHelper.GetDpi(Application.Current.MainWindow).DpiScaleY;
+
+            ViewWidth = (float)openGLView.ActualWidth;
+            ViewHeight = (float)openGLView.ActualHeight;
+
+            renderViewWidth = (int)(openGLView.ActualWidth * dpiX);
+            renderViewHeight = (int)(openGLView.ActualHeight * dpiY);
+
+            playFieldBackgroundColor = System.Drawing.Color.FromArgb(Properties.EditorGlobalSetting.Default.PlayFieldBackgroundColor).ToVector4();
+            enablePlayFieldDrawing = Properties.EditorGlobalSetting.Default.EnablePlayFieldDrawing;
+
+            drawTargets = IoC.GetAll<IFumenEditorDrawingTarget>()
+                .SelectMany(target => target.DrawTargetID.Select(supportId => (supportId, target)))
+                .GroupBy(x => x.supportId).ToDictionary(x => x.Key, x => x.Select(x => x.target).ToArray());
+
+            ResortRenderOrder();
+
+            timeSignatureHelper = new DrawTimeSignatureHelper();
+            xGridHelper = new DrawXGridHelper();
+            judgeLineHelper = new DrawJudgeLineHelper();
+            selectingRangeHelper = new DrawSelectingRangeHelper();
+            playableAreaHelper = new DrawPlayableAreaHelper();
+
+            actualPerformenceMonitor = IoC.Get<IPerfomenceMonitor>();
+            IsDisplayFPS = IsDisplayFPS;
+
+            openGLView.Render += Render;
+        }
+
+        private void ResortRenderOrder()
+        {
+            drawTargetOrder = drawTargets.Values.SelectMany(x => x).OrderBy(x => x.CurrentRenderOrder).Distinct().ToArray();
+        }
+
+        public IFumenEditorDrawingTarget[] GetDrawingTarget(string name) => drawTargets.TryGetValue(name, out var drawingTarget) ? drawingTarget : default;
+
+        private IEnumerable<IDisplayableObject> GetDisplayableObjects(OngekiFumen fumen, IEnumerable<(TGrid min, TGrid max)> visibleRanges)
+        {
+            var containBeams = fumen.Beams.Any();
+
+            var objects = visibleRanges.SelectMany(x =>
             {
-                var refObject = viewModel.DisplayableObject;
-                //ºÏ≤È «∑Òªπ¥Ê‘⁄
-                if (!allDisplayableObjects.Contains(refObject))
-                    removeObjects.Add(viewModel);
-            }
-            foreach (var removeViewModel in removeObjects)
-            {
-                EditorViewModels.Remove(removeViewModel);
-                CurrentDisplayEditorViewModels.Remove(removeViewModel);
-                if (removeViewModel.DisplayableObject is ISelectableObject selectable)
-                    CurrentSelectedObjects.Remove(selectable);
-            }
+                (var min, var max) = x;
+                var r = Enumerable.Empty<IDisplayableObject>()
+                   .Concat(fumen.Flicks.BinaryFindRange(min, max))
+                   .Concat(fumen.MeterChanges.Skip(1)) //not show first meter
+                   .Concat(fumen.BpmList.Skip(1)) //not show first bpm
+                   .Concat(fumen.ClickSEs.BinaryFindRange(min, max))
+                   .Concat(fumen.LaneBlocks.GetVisibleStartObjects(min, max))
+                   .Concat(fumen.Comments.BinaryFindRange(min, max))
+                   .Concat(fumen.Soflans.GetVisibleStartObjects(min, max))
+                   .Concat(fumen.EnemySets.BinaryFindRange(min, max))
+                   .Concat(fumen.Lanes.GetVisibleStartObjects(min, max))
+                   .Concat(fumen.Taps.BinaryFindRange(min, max))
+                   .Concat(fumen.Holds.GetVisibleStartObjects(min, max))
+                   .Concat(fumen.SvgPrefabs);
 
-            //Ω´ªπ√ªœ‘ æµƒ∂º»˚Ω¯»•œ‘ æ¡À
-            var c = 0;
-            foreach (var add in allDisplayableObjects
-                .Where(x => !currentDisplayingObjects.Contains(x)))
-            {
-                currentDisplayingObjects.Add(add);
-                var viewModel = CacheLambdaActivator.CreateInstance(add.ModelViewType) as IEditorDisplayableViewModel;
-                viewModel.OnObjectCreated(add, this);
-                EditorViewModels.Add(viewModel);
-                //odLog.LogDebug($"add viewmodel : {add}");
-                c++;
-            }
-
-            removeObjects.Clear();//∏¥”√
-            foreach (var currentDisplaying in CurrentDisplayEditorViewModels)
-            {
-                if ((!currentDisplaying.DisplayableObject.CheckVisiable(min, max)) // ‘⁄œ‘ æ∑∂ŒßÕ‚
-                    && (currentDisplaying.DisplayableObject is not ISelectableObject selectable || !selectable.IsSelected)) // ≤¢∑«—°‘Ò◊¥Ã¨
+                if (containBeams)
                 {
-                    //remove
-                    removeObjects.Add(currentDisplaying);
+                    var leadInTGrid = TGridCalculator.ConvertAudioTimeToTGrid(TGridCalculator.ConvertTGridToAudioTime(min, this) - TimeSpan.FromMilliseconds(BeamStart.LEAD_IN_DURATION), this);
+                    var leadOutTGrid = TGridCalculator.ConvertAudioTimeToTGrid(TGridCalculator.ConvertTGridToAudioTime(max, this) + TimeSpan.FromMilliseconds(BeamStart.LEAD_OUT_DURATION), this);
+
+                    r = r.Concat(fumen.Beams.GetVisibleStartObjects(leadInTGrid, leadOutTGrid));
                 }
-            }
+
+                return r;
+            });
+
             /*
-            removeObjects.ForEach(x => CurrentDisplayEditorViewModels.Remove(x));
-            using var d4 = CurrentDisplayEditorViewModels
-                .GroupJoin(EditorViewModels.Where(x => x.DisplayableObject.CheckVisiable(min, max)), x => x, x => x, (x, _) => x)
-                .ToListWithObjectPool(out var addList);
-            foreach (var add in addList)
+             * ËøôÈáåËÄÉËôëÂà∞Êúâspd<1ÁöÑÂ≠êÂºπ/Bell‰ºöÊèêÂâçÂá∫Áé∞ÁöÑÊÉÖÂÜµÔºåÂõ†Ê≠§ÂæóÂàÜÁä∂ÊÄÅÂàÜÂà´ÂéªÈÄâÊã©
+             */
+            var objs = Enumerable.Empty<IDisplayableObject>();
+            if (Editor.IsPreviewMode)
             {
-                CurrentDisplayEditorViewModels.Add(add);
-            }
-            */
-            using var d4 = EditorViewModels.Where(x => x.DisplayableObject.CheckVisiable(min, max)).ToListWithObjectPool(out var visibleList);
-            using var d5 = visibleList.Except(CurrentDisplayEditorViewModels).ToListWithObjectPool(out var addList);
-            CurrentDisplayEditorViewModels.AddRange(addList);
+                /*
+                var r = fumen.Bells
+                    .AsEnumerable<IBulletPalleteReferencable>()
+                    .Concat(fumen.Bullets);
 
-            foreach (var viewModel in CurrentDisplayEditorViewModels)
+                objs = objs.Concat(r);
+                */
+            }
+            else
             {
-                if (viewModel is IEditorDisplayableViewModel editorViewModel)
-                    editorViewModel.OnEditorRedrawObjects();
+                foreach (var item in visibleRanges)
+                {
+                    (var min, var max) = item;
+                    var blts = fumen.Bullets.BinaryFindRange(min, max);
+                    var bels = fumen.Bells.BinaryFindRange(min, max);
+
+                    objs = objs.Concat(bels);
+                    objs = objs.Concat(blts);
+                }
             }
 
-            //Log.LogDebug($"removed {removeObjects.Count} objects , added {c} objects, displaying {CurrentDisplayEditorViewModels.Count} objects.");
+            return objects.Concat(objs).SelectMany(x => x.GetDisplayableObjects());
         }
 
-        private void RedrawUnitCloseXLines()
+        private void CleanRender()
         {
-            foreach (var item in XGridUnitLineLocations)
-                ObjectPool<XGridUnitLineViewModel>.Return(item);
-            XGridUnitLineLocations.Clear();
-
-            var width = CanvasWidth;
-            var unitSize = XGridCalculator.CalculateXUnitSize(this);
-            var totalUnitValue = 0d;
-            var line = default(XGridUnitLineViewModel);
-
-            for (double totalLength = width / 2 + unitSize; totalLength < width; totalLength += unitSize)
-            {
-                totalUnitValue += Setting.XGridUnitSpace;
-
-                line = ObjectPool<XGridUnitLineViewModel>.Get();
-                line.X = totalLength;
-                line.Unit = totalUnitValue;
-                line.IsCenterLine = false;
-                XGridUnitLineLocations.Add(line);
-
-                line = ObjectPool<XGridUnitLineViewModel>.Get();
-                line.X = (width / 2) - (totalLength - (width / 2));
-                line.Unit = -totalUnitValue;
-                line.IsCenterLine = false;
-                XGridUnitLineLocations.Add(line);
-            }
-
-            line = ObjectPool<XGridUnitLineViewModel>.Get();
-            line.X = width / 2;
-            line.IsCenterLine = true;
-            XGridUnitLineLocations.Add(line);
+            if (IsDesignMode || !enablePlayFieldDrawing)
+                GL.ClearColor(16 / 255.0f, 16 / 255.0f, 16 / 255.0f, 1);
+            else
+                GL.ClearColor(playFieldBackgroundColor.X, playFieldBackgroundColor.Y, playFieldBackgroundColor.Z, playFieldBackgroundColor.W);
+            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         }
 
-        public void Redraw(RedrawTarget target)
+        private List<(TGrid minTGrid, TGrid maxTGrid)> visibleTGridRanges = new List<(TGrid minTGrid, TGrid maxTGrid)>();
+
+        public void Render(TimeSpan ts)
         {
-            if (target.HasFlag(RedrawTarget.TGridUnitLines))
-                RedrawTimeline();
-            if (target.HasFlag(RedrawTarget.XGridUnitLines))
-                RedrawUnitCloseXLines();
-            if (target.HasFlag(RedrawTarget.OngekiObjects))
-                RedrawEditorObjects();
-            if (target.HasFlag(RedrawTarget.ScrollBar))
-                RecalculateScrollBar();
+            PerfomenceMonitor.PostUIRenderTime(ts);
+            PerfomenceMonitor.OnBeforeRender();
+
+#if DEBUG
+            GLUtility.CheckError();
+#endif
+
+            CleanRender();
+            GL.Viewport(0, 0, renderViewWidth, renderViewHeight);
+
+            hits.Clear();
+
+            var fumen = Fumen;
+            if (fumen is null)
+                return;
+
+            var tGrid = GetCurrentTGrid();
+
+            var curY = ConvertToY(tGrid.TotalUnit);
+            var minY = (float)(curY - Setting.JudgeLineOffsetY);
+            var maxY = (float)(minY + ViewHeight);
+
+            //ËÆ°ÁÆóÂèØ‰ª•ÊòæÁ§∫ÁöÑTGridËåÉÂõ¥‰ª•ÂèäÂÉèÁ¥†ËåÉÂõ¥
+            visibleTGridRanges.Clear();
+            if (IsDesignMode)
+            {
+                var minTGrid = TGridCalculator.ConvertYToTGrid_DesignMode(minY, this) ?? TGrid.Zero;
+                var maxTGrid = TGridCalculator.ConvertYToTGrid_DesignMode(maxY, this);
+
+                if (maxTGrid is null || minTGrid is null)
+                    return;
+                visibleTGridRanges.Add((minTGrid, maxTGrid));
+            }
+            else
+            {
+                var scale = Setting.VerticalDisplayScale;
+                var ranges = Fumen.Soflans.GetVisibleRanges_PreviewMode(curY, ViewHeight, Setting.JudgeLineOffsetY, Fumen.BpmList, scale);
+
+                foreach (var x in ranges)
+                {
+                    if (x.maxTGrid is null || x.minTGrid is null)
+                        return;
+                    visibleTGridRanges.Add((x.minTGrid, x.maxTGrid));
+                }
+            }
+            Rect = new VisibleRect(new(ViewWidth, minY), new(0, minY + ViewHeight));
+
+            RecalculateMagaticXGridLines();
+
+            foreach ((var minTGrid, var maxTGrid) in visibleTGridRanges)
+                playableAreaHelper.DrawPlayField(this, minTGrid, maxTGrid);
+            playableAreaHelper.Draw(this);
+            timeSignatureHelper.DrawLines(this);
+
+            xGridHelper.DrawLines(this, CachedMagneticXGridLines);
+
+            //todo ÂèØ‰ª•ÊääGroupBy()Áªô‰ºòÂåñÊéâ
+            var renderObjects =
+                 GetDisplayableObjects(fumen, visibleTGridRanges)
+                .Distinct()
+                .OfType<OngekiTimelineObjectBase>()
+                .GroupBy(x => x.IDShortName);
+
+            foreach (var objGroup in renderObjects)
+            {
+                if (GetDrawingTarget(objGroup.Key) is not IFumenEditorDrawingTarget[] drawingTargets)
+                    continue;
+
+                foreach (var drawingTarget in drawingTargets)
+                {
+                    if (!drawMap.TryGetValue(drawingTarget, out var enums))
+                        drawMap[drawingTarget] = objGroup;
+                    else
+                        drawMap[drawingTarget] = enums.Concat(objGroup);
+                }
+            }
+
+            if (IsPreviewMode)
+            {
+                //ÁâπÊÆäÂ§ÑÁêÜÔºöÂ≠êÂºπÂíåBell
+                foreach (var drawingTarget in GetDrawingTarget(Bullet.CommandName))
+                    drawMap[drawingTarget] = Fumen.Bullets;
+                foreach (var drawingTarget in GetDrawingTarget(Bell.CommandName))
+                    drawMap[drawingTarget] = Fumen.Bells;
+            }
+
+            var prevOrder = int.MinValue;
+            foreach (var drawingTarget in drawTargetOrder.Where(x => CheckDrawingVisible(x.Visible)))
+            {
+                //check render order
+                var order = drawingTarget.CurrentRenderOrder;
+                if (prevOrder > order)
+                {
+                    ResortRenderOrder();
+                    CleanRender();
+                    break;
+                }
+                prevOrder = order;
+
+                if (drawMap.TryGetValue(drawingTarget, out var drawingObjs))
+                {
+                    drawingTarget.Begin(this);
+                    foreach (var obj in drawingObjs.OrderBy(x => x.TGrid))
+                        drawingTarget.Post(obj);
+                    drawingTarget.End();
+                }
+            }
+
+            drawMap.Clear();
+
+            timeSignatureHelper.DrawTimeSigntureText(this);
+            xGridHelper.DrawXGridText(this, CachedMagneticXGridLines);
+            judgeLineHelper.Draw(this);
+            selectingRangeHelper.Draw(this);
+
+            PerfomenceMonitor.OnAfterRender();
         }
 
         public void OnLoaded(ActionExecutionContext e)
         {
-            var scrollViewer = e.Source as AnimatedScrollViewer;
-            var view = e.View as FrameworkElement;
-            CanvasWidth = scrollViewer.ViewportWidth;
-            CanvasHeight = view.ActualHeight;
-            Redraw(RedrawTarget.All);
+
+        }
+
+        private void RecalculateMagaticXGridLines()
+        {
+            //todo ÂèØ‰ª•‰ºòÂåñ
+            cachedMagneticXGridLines.Clear();
+
+            var xOffset = (float)Setting.XOffset;
+            var width = ViewWidth;
+            if (width == 0)
+                return;
+            var xUnitSpace = (float)Setting.XGridUnitSpace;
+            var maxDisplayXUnit = Setting.XGridDisplayMaxUnit;
+
+            var unitSize = (float)XGridCalculator.CalculateXUnitSize(maxDisplayXUnit, width, xUnitSpace);
+            var totalUnitValue = 0f;
+
+            var baseX = width / 2 + xOffset;
+
+            var limitLength = width + Math.Abs(xOffset);
+
+            for (float totalLength = baseX + unitSize; totalLength - xOffset < limitLength; totalLength += unitSize)
+            {
+                totalUnitValue += xUnitSpace;
+
+                cachedMagneticXGridLines.Add(new()
+                {
+                    X = totalLength,
+                    XGridTotalUnit = totalUnitValue,
+                    XGridTotalUnitDisplay = totalUnitValue.ToString()
+                });
+
+                cachedMagneticXGridLines.Add(new()
+                {
+                    X = baseX - (totalLength - baseX),
+                    XGridTotalUnit = -totalUnitValue,
+                    XGridTotalUnitDisplay = (-totalUnitValue).ToString()
+                });
+            }
+            cachedMagneticXGridLines.Add(new()
+            {
+                X = baseX,
+                XGridTotalUnit = 0f,
+            });
         }
 
         public void OnSizeChanged(ActionExecutionContext e)
         {
             var scrollViewer = e.Source as AnimatedScrollViewer;
-            var arg = e.EventArgs as SizeChangedEventArgs;
-            scrollViewer.InvalidateMeasure();
-            CanvasWidth = Math.Min(scrollViewer.ActualWidth, scrollViewer.ViewportWidth);
-            CanvasHeight = arg.NewSize.Height;
-            Redraw(RedrawTarget.All);
+            scrollViewer?.InvalidateMeasure();
+        }
+
+        public void OnSchedulerTerm()
+        {
+
+        }
+
+        public Task OnScheduleCall(CancellationToken cancellationToken)
+        {
+            if (IsDisplayFPS)
+            {
+                stringBuilder.Clear();
+
+                PerfomenceMonitor?.FormatStatistics(stringBuilder);
+#if DEBUG
+                stringBuilder.AppendLine();
+                stringBuilder.AppendLine($"View: {ViewWidth}x{ViewHeight}");
+                stringBuilder.AppendLine($"VisibleYRange: [{Rect.MinY}, {Rect.MaxY}]");
+                stringBuilder.AppendLine($"VisibleTGridRanges:");
+                foreach (var tGridRange in visibleTGridRanges.ToArray())
+                    stringBuilder.AppendLine($"*   {tGridRange.minTGrid}  -  {tGridRange.maxTGrid}");
+#endif
+
+                DisplayFPS = stringBuilder.ToString();
+
+                PerfomenceMonitor?.Clear();
+
+            }
+            return Task.CompletedTask;
+        }
+
+        public bool CheckDrawingVisible(DrawingVisible visible)
+        {
+            return visible.HasFlag(EditorObjectVisibility == Visibility.Visible ? DrawingVisible.Design : DrawingVisible.Preview);
+        }
+
+        public double ConvertToY(double tGridUnit)
+        {
+            return convertToY(tGridUnit, this);
+        }
+
+        public bool CheckVisible(TGrid tGrid)
+        {
+            foreach ((var minTGrid, var maxTGrid) in visibleTGridRanges)
+                if (minTGrid <= tGrid && tGrid <= maxTGrid)
+                    return true;
+            return false;
+        }
+
+        public bool CheckRangeVisible(TGrid minTGrid, TGrid maxTGrid)
+        {
+            foreach (var visibleRange in visibleTGridRanges)
+            {
+                var result = !(minTGrid > visibleRange.maxTGrid || maxTGrid < visibleRange.minTGrid);
+                if (result)
+                    return true;
+            }
+            return false;
         }
     }
 }

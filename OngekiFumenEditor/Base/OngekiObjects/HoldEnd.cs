@@ -1,31 +1,29 @@
-﻿using OngekiFumenEditor.Base.OngekiObjects.ConnectableObject;
+﻿using OngekiFumenEditor.Base.Attributes;
 using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
-using System;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
-    public class HoldEnd : ConnectableEndObject, ILaneDockable
-    {
-        public override Type ModelViewType => typeof(HoldEndViewModel);
+	public class HoldEnd : OngekiMovableObjectBase, ILaneDockable
+	{
+		public override string IDShortName => "[HoldEnd]";
 
-        public bool IsCritical => (ReferenceStartObject as Hold)?.IsCritical ?? false;
+		private Hold refHold;
+		public Hold RefHold
+		{
+			get => refHold;
+			internal set => Set(ref refHold, value);
+		}
 
-        public override string IDShortName => "[HoldEnd]";
+		[ObjectPropertyBrowserHide]
+		public LaneStartBase ReferenceLaneStart
+		{
+			get => RefHold?.ReferenceLaneStart;
+			set { }
+		}
 
-        public LaneStartBase ReferenceLaneStart
-        {
-            get => (ReferenceStartObject as Hold)?.ReferenceLaneStart;
-            set
-            {
-                NotifyOfPropertyChange(() => ReferenceLaneStart);
-            }
-        }
+		[ObjectPropertyBrowserHide]
+		public int ReferenceLaneStrId => ReferenceLaneStart?.RecordId ?? -1;
 
-        public int ReferenceLaneStrId
-        {
-            get => (ReferenceStartObject as Hold)?.ReferenceLaneStrId ?? -1;
-            set => NotifyOfPropertyChange(() => ReferenceLaneStrId);
-        }
-    }
+		internal int? CacheRecoveryHoldObjectID { get; set; } = null;
+	}
 }

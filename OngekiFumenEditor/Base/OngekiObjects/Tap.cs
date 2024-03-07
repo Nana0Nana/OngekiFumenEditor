@@ -1,64 +1,71 @@
-﻿using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using OngekiFumenEditor.Base.Attributes;
+using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
-    public class Tap : OngekiMovableObjectBase, ILaneDockable
-    {
-        private bool isCritical = false;
-        public bool IsCritical
-        {
-            get { return isCritical; }
-            set
-            {
-                isCritical = value;
-                NotifyOfPropertyChange(() => IDShortName);
-                NotifyOfPropertyChange(() => IsCritical);
-            }
-        }
+	public class Tap : OngekiMovableObjectBase, ILaneDockableChangable, ICriticalableObject
+	{
+		public bool IsWallTap => ReferenceLaneStart?.IsWallLane ?? false;
 
-        private LaneStartBase referenceLaneStart = default;
-        public LaneStartBase ReferenceLaneStart
-        {
-            get { return referenceLaneStart; }
-            set
-            {
-                referenceLaneStart = value;
-                NotifyOfPropertyChange(() => ReferenceLaneStart);
-                NotifyOfPropertyChange(() => ReferenceLaneStrId);
-            }
-        }
+		private bool isCritical = false;
+		public bool IsCritical
+		{
+			get { return isCritical; }
+			set
+			{
+				isCritical = value;
+				NotifyOfPropertyChange(() => IDShortName);
+				NotifyOfPropertyChange(() => IsCritical);
+			}
+		}
 
-        private int referenceLaneStrId = default;
-        public int ReferenceLaneStrId
-        {
-            get { return ReferenceLaneStart?.RecordId ?? referenceLaneStrId; }
-            set
-            {
-                if (ReferenceLaneStart is null)
-                    referenceLaneStrId = value;
-                NotifyOfPropertyChange(() => ReferenceLaneStrId);
-            }
-        }
+		private LaneStartBase referenceLaneStart = default;
+		public LaneStartBase ReferenceLaneStart
+		{
+			get { return referenceLaneStart; }
+			set
+			{
+				referenceLaneStart = value;
 
-        public override Type ModelViewType => typeof(TapViewModel);
+				NotifyOfPropertyChange(() => ReferenceLaneStart);
+				NotifyOfPropertyChange(() => ReferenceLaneStrId);
+			}
+		}
 
-        public override string IDShortName => IsCritical ? "CTP" : "TAP";
+		[ObjectPropertyBrowserShow]
+		[ObjectPropertyBrowserAlias("RefLaneId")]
+		public int ReferenceLaneStrId => ReferenceLaneStart?.RecordId ?? -1;
 
-        public override void Copy(OngekiObjectBase fromObj, OngekiFumen fumen)
-        {
-            base.Copy(fromObj, fumen);
+		private int? referenceLaneStrIdManualSet = default;
+		[ObjectPropertyBrowserShow]
+		[ObjectPropertyBrowserTipText("ObjectLaneGroupId")]
+		[ObjectPropertyBrowserAlias("SetRefLaneId")]
+		public int? ReferenceLaneStrIdManualSet
+		{
+			get => referenceLaneStrIdManualSet;
+			set
+			{
+				referenceLaneStrIdManualSet = value;
+				NotifyOfPropertyChange(() => ReferenceLaneStrIdManualSet);
+				referenceLaneStrIdManualSet = default;
+			}
+		}
 
-            if (fromObj is not Tap from)
-                return;
+		public override string IDShortName => this switch
+		{
+			{ IsCritical: true } => "CTP",
+			{ IsCritical: false } => "TAP",
+		};
 
-            IsCritical = from.IsCritical;
-            ReferenceLaneStart = from.ReferenceLaneStart;
-        }
-    }
+		public override void Copy(OngekiObjectBase fromObj)
+		{
+			base.Copy(fromObj);
+
+			if (fromObj is not Tap from)
+				return;
+
+			IsCritical = from.IsCritical;
+			ReferenceLaneStart = from.ReferenceLaneStart;
+		}
+	}
 }

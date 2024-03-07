@@ -1,12 +1,11 @@
 ﻿using Caliburn.Micro;
 using Gemini.Modules.Settings;
+using OngekiFumenEditor.Kernel.RecentFiles;
+using OngekiFumenEditor.Properties;
+using OngekiFumenEditor.UI.Dialogs;
 using OngekiFumenEditor.Utils;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.Composition;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Xceed.Wpf.Toolkit;
 
 namespace OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.ViewModels
 {
@@ -26,13 +25,42 @@ namespace OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.ViewModels
             Log.LogDebug($"editor global setting property changed : {e.PropertyName}");
         }
 
-        public string SettingsPageName => "可视编辑器";
+        public string SettingsPageName => Resources.TabEditor;
 
-        public string SettingsPagePath => "文档";
+        public string SettingsPagePath => Resources.TabDocument;
 
         public void ApplyChanges()
         {
             Properties.EditorGlobalSetting.Default.Save();
+        }
+
+        public void ClearRecentOpen()
+        {
+            IoC.Get<IEditorRecentFilesManager>().ClearAllRecords();
+        }
+
+        public void OnSelectForegroundColor(ActionExecutionContext context)
+        {
+            var dialog = new CommonColorPicker(() =>
+            {
+                return Setting.PlayFieldForegroundColor.AsARGBToColor().ToMediaColor();
+            }, color =>
+            {
+                Setting.PlayFieldForegroundColor = color.ToDrawingColor().ToArgb();
+            }, "设置颜色");
+            dialog.Show();
+        }
+
+        public void OnSelectBackgroundColor(ActionExecutionContext context)
+        {
+            var dialog = new CommonColorPicker(() =>
+            {
+                return Setting.PlayFieldBackgroundColor.AsARGBToColor().ToMediaColor();
+            }, color =>
+            {
+                Setting.PlayFieldBackgroundColor = color.ToDrawingColor().ToArgb();
+            }, "设置颜色");
+            dialog.Show();
         }
     }
 }

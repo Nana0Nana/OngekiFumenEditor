@@ -1,70 +1,96 @@
-﻿using OngekiFumenEditor.Base.EditorObjects;
-using OngekiFumenEditor.Base.OngekiObjects.ConnectableObject;
+﻿using OngekiFumenEditor.Base.Attributes;
 using OngekiFumenEditor.Base.OngekiObjects.Lane.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
-using OngekiFumenEditor.Utils;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OngekiFumenEditor.Base.OngekiObjects
 {
-    public class Hold : ConnectableStartObject, ILaneDockable
-    {
-        private bool isCritical = false;
-        public bool IsCritical
-        {
-            get { return isCritical; }
-            set
-            {
-                isCritical = value;
-                NotifyOfPropertyChange(() => IDShortName);
-                NotifyOfPropertyChange(() => IsCritical);
-                Children.ForEach(x => x.NotifyOfPropertyChange(() => IsCritical));
-            }
-        }
+	public class Hold : OngekiMovableObjectBase, ILaneDockableChangable, ICriticalableObject
+	{
+		private HoldEnd holdEnd;
 
-        private LaneStartBase referenceLaneStart = default;
-        public LaneStartBase ReferenceLaneStart
-        {
-            get { return referenceLaneStart; }
-            set
-            {
-                referenceLaneStart = value;
-                NotifyOfPropertyChange(() => ReferenceLaneStart);
-                ReferenceLaneStrId = value?.RecordId ?? -1;
-                Children?.FirstOrDefault()?.NotifyOfPropertyChange(() => ReferenceLaneStart);
-            }
-        }
+		public bool IsWallHold => ReferenceLaneStart?.IsWallLane ?? false;
 
-        private int referenceLaneStrId = -1;
-        public int ReferenceLaneStrId
-        {
-            get { return referenceLaneStrId; }
-            set
-            {
-                Set(ref referenceLaneStrId, value);
-            }
-        }
+		private bool isCritical = false;
+		public bool IsCritical
+		{
+			get { return isCritical; }
+			set
+			{
+				isCritical = value;
+				NotifyOfPropertyChange(() => IDShortName);
+				NotifyOfPropertyChange(() => IsCritical);
+			}
+		}
 
-        public HoldEnd HoldEnd => Children.LastOrDefault() as HoldEnd;
+		private LaneStartBase referenceLaneStart = default;
+		public LaneStartBase ReferenceLaneStart
+		{
+			get { return referenceLaneStart; }
+			set
+			{
+				referenceLaneStart = value;
+				NotifyOfPropertyChange(() => ReferenceLaneStart);
+				NotifyOfPropertyChange(() => ReferenceLaneStrId);
+			}
+		}
 
-        public override Type ModelViewType => typeof(HoldViewModel);
+		[ObjectPropertyBrowserShow]
+		[ObjectPropertyBrowserAlias("RefLaneId")]
+		public int ReferenceLaneStrId => ReferenceLaneStart?.RecordId ?? -1;
 
-        public override string IDShortName => IsCritical ? "CHD" : "HLD";
+		private int? referenceLaneStrIdManualSet = default;
+		[ObjectPropertyBrowserShow]
+		[ObjectPropertyBrowserTipText("ObjectLaneGroupId")]
+		[ObjectPropertyBrowserAlias("SetRefLaneId")]
+		public int? ReferenceLaneStrIdManualSet
+		{
+			get => referenceLaneStrIdManualSet;
+			set
+			{
+				referenceLaneStrIdManualSet = value;
+				NotifyOfPropertyChange(() => ReferenceLaneStrIdManualSet);
+				referenceLaneStrIdManualSet = default;
+			}
+		}
 
-        public override Type NextType => null;
-        public override Type EndType => typeof(HoldEnd);
+		public HoldEnd HoldEnd => holdEnd;
 
-        protected override ConnectorLineBase<ConnectableObjectBase> GenerateConnector(ConnectableObjectBase from, ConnectableObjectBase to)
-        {
-            return new HoldConnector()
-            {
-                From = from,
-                To = to
-            };
-        }
-    }
+		public TGrid EndTGrid => HoldEnd?.TGrid ?? TGrid;
+
+		public override string IDShortName => IsCritical ? "CHD" : "HLD";
+
+		public void SetHoldEnd(HoldEnd end)
+		{
+			if (holdEnd is not null)
+				holdEnd.PropertyChanged -= HoldEnd_PropertyChanged;
+			if (end is not null)
+				end.PropertyChanged += HoldEnd_PropertyChanged;
+
+			holdEnd = end;
+
+			if (end is not null)
+			{
+				end.RefHold?.SetHoldEnd(null);
+				end.RefHold = this;
+			}
+		}
+
+		private void HoldEnd_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		{
+			switch (e.PropertyName)
+			{
+				case nameof(HoldEnd.TGrid):
+					NotifyOfPropertyChange(nameof(EndTGrid));
+					break;
+				default:
+					break;
+			}
+		}
+
+		public override IEnumerable<IDisplayableObject> GetDisplayableObjects()
+		{
+			yield return this;
+			yield return HoldEnd;
+		}
+	}
 }

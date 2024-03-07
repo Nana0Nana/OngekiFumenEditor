@@ -12,7 +12,7 @@ namespace OngekiFumenEditor.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.1.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.8.0.0")]
     public sealed partial class EditorGlobalSetting : global::System.Configuration.ApplicationSettingsBase {
         
         private static EditorGlobalSetting defaultInstance = ((EditorGlobalSetting)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new EditorGlobalSetting())));
@@ -169,7 +169,7 @@ namespace OngekiFumenEditor.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("24")]
+        [global::System.Configuration.DefaultSettingValueAttribute("40")]
         public int XGridDisplayMaxUnit {
             get {
                 return ((int)(this["XGridDisplayMaxUnit"]));
@@ -200,6 +200,186 @@ namespace OngekiFumenEditor.Properties {
             }
             set {
                 this["VerticalDisplayScale"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int DisplayTimeFormat {
+            get {
+                return ((int)(this["DisplayTimeFormat"]));
+            }
+            set {
+                this["DisplayTimeFormat"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool JudgeLineAlignBeat {
+            get {
+                return ((bool)(this["JudgeLineAlignBeat"]));
+            }
+            set {
+                this["JudgeLineAlignBeat"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("50")]
+        public int MouseWheelLength {
+            get {
+                return ((int)(this["MouseWheelLength"]));
+            }
+            set {
+                this["MouseWheelLength"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public double XOffset {
+            get {
+                return ((double)(this["XOffset"]));
+            }
+            set {
+                this["XOffset"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool ShowXOffsetScrollBar {
+            get {
+                return ((bool)(this["ShowXOffsetScrollBar"]));
+            }
+            set {
+                this["ShowXOffsetScrollBar"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool EnableXOffset {
+            get {
+                return ((bool)(this["EnableXOffset"]));
+            }
+            set {
+                this["EnableXOffset"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool AdjustPastedObjects {
+            get {
+                return ((bool)(this["AdjustPastedObjects"]));
+            }
+            set {
+                this["AdjustPastedObjects"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("3000")]
+        public int ParallelCountLimit {
+            get {
+                return ((int)(this["ParallelCountLimit"]));
+            }
+            set {
+                this["ParallelCountLimit"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string RecentOpenedListStr {
+            get {
+                return ((string)(this["RecentOpenedListStr"]));
+            }
+            set {
+                this["RecentOpenedListStr"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool RecoveryCurrentTimeAfterExecuteAction {
+            get {
+                return ((bool)(this["RecoveryCurrentTimeAfterExecuteAction"]));
+            }
+            set {
+                this["RecoveryCurrentTimeAfterExecuteAction"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool LoopPlayTiming {
+            get {
+                return ((bool)(this["LoopPlayTiming"]));
+            }
+            set {
+                this["LoopPlayTiming"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool EnablePlaceObjectBeyondAudioDuration {
+            get {
+                return ((bool)(this["EnablePlaceObjectBeyondAudioDuration"]));
+            }
+            set {
+                this["EnablePlaceObjectBeyondAudioDuration"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("-16777216")]
+        public int PlayFieldForegroundColor {
+            get {
+                return ((int)(this["PlayFieldForegroundColor"]));
+            }
+            set {
+                this["PlayFieldForegroundColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("-14240057")]
+        public int PlayFieldBackgroundColor {
+            get {
+                return ((int)(this["PlayFieldBackgroundColor"]));
+            }
+            set {
+                this["PlayFieldBackgroundColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool EnablePlayFieldDrawing {
+            get {
+                return ((bool)(this["EnablePlayFieldDrawing"]));
+            }
+            set {
+                this["EnablePlayFieldDrawing"] = value;
             }
         }
     }

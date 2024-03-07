@@ -1,35 +1,56 @@
 using Caliburn.Micro;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
+using OngekiFumenEditor.Base.Attributes;
 using OngekiFumenEditor.Utils;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 
 namespace OngekiFumenEditor.Base
 {
-    public abstract class OngekiObjectBase : PropertyChangedBase
-    {
-        public abstract string IDShortName { get; }
-        public string Name => GetType().GetTypeName();
+	public abstract class OngekiObjectBase : PropertyChangedBase
+	{
+		private static int ID_GEN = 0;
 
-        public override string ToString() => IDShortName;
+		[ObjectPropertyBrowserReadOnly]
+		public int Id { get; init; } = ID_GEN++;
 
-        private string tag = string.Empty;
-        /// <summary>
-        /// ±íÊ¾ÓÃ»§×Ô¶¨ÒåµÄ±êÇ©£¬Ò»°ãÓÃÓÚ½Å±¾Çø·Ö
-        /// </summary>
-        public string Tag
-        {
-            get => tag;
-            set => Set(ref tag, value);
-        }
+		[ObjectPropertyBrowserHide]
+		public abstract string IDShortName { get; }
 
-        /// <summary>
-        /// ¸´ÖÆÎï¼ş²ÎÊıºÍÄÚÈİ
-        /// </summary>
-        /// <param name="fromObj">¸´ÖÆÔ´£¬±¾¶ÔÏóµÄ·ÂÖÆÄ¿±ê</param>
-        public abstract void Copy(OngekiObjectBase fromObj, OngekiFumen fumen);
-    }
+		[ObjectPropertyBrowserHide]
+		public string Name => GetType().GetTypeName();
+
+		public override string ToString() => $"{{{IDShortName}}} OID[{Id}]";
+
+		[ObjectPropertyBrowserHide]
+		public override bool IsNotifying
+		{
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			get => base.IsNotifying;
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			set => base.IsNotifying = value;
+		}
+
+		private string tag = string.Empty;
+		/// <summary>
+		/// 
+		/// </summary>
+		[ObjectPropertyBrowserTipText("ObjectTag")]
+		public string Tag
+		{
+			get => tag;
+			set => Set(ref tag, value);
+		}
+
+		/// <summary>
+		/// å¤åˆ¶ç‰©ä»¶å‚æ•°å’Œå†…å®¹
+		/// </summary>
+		/// <param name="fromObj">å¤åˆ¶æºï¼Œæœ¬å¯¹è±¡çš„ä»¿åˆ¶ç›®æ ‡</param>
+		public abstract void Copy(OngekiObjectBase fromObj);
+
+		public OngekiObjectBase CopyNew()
+		{
+			var newObj = CacheLambdaActivator.CreateInstance(GetType()) as OngekiObjectBase;
+			newObj.Copy(this);
+			return newObj;
+		}
+	}
 }

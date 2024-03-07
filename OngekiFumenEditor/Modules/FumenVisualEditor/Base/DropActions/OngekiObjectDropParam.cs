@@ -1,24 +1,20 @@
-﻿using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels;
+﻿using OngekiFumenEditor.Base;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OngekiFumenEditor.Modules.FumenVisualEditor.Base.DropActions
 {
-    public class OngekiObjectDropParam : EditorAddObjectDropAction
-    {
-        private readonly Func<DisplayObjectViewModelBase> lazyLoadFunc;
+	public class OngekiObjectDropParam : EditorAddObjectDropAction
+	{
+		private readonly Func<OngekiObjectBase> lazyLoadFunc;
 
-        public OngekiObjectDropParam(Func<DisplayObjectViewModelBase> lazyLoadFunc)
-        {
-            this.lazyLoadFunc = lazyLoadFunc;
-        }
+		public OngekiObjectDropParam(Func<OngekiObjectBase> lazyLoadFunc)
+		{
+			this.lazyLoadFunc = lazyLoadFunc;
+		}
 
-        protected override DisplayObjectViewModelBase GetDisplayObject()
-        {
-            return lazyLoadFunc();
-        }
-    }
+		protected override OngekiObjectBase GetDisplayObject()
+		{
+			return lazyLoadFunc();
+		}
+	}
 }

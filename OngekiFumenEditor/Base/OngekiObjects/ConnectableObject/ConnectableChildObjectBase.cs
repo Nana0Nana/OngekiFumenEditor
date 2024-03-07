@@ -2,233 +2,320 @@
 using OngekiFumenEditor.Kernel.CurveInterpolater;
 using OngekiFumenEditor.Kernel.CurveInterpolater.DefaultImpl.Factory;
 using OngekiFumenEditor.Utils;
+using OngekiFumenEditor.Utils.ObjectPool;
 using OpenTK.Mathematics;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OngekiFumenEditor.Base.OngekiObjects.ConnectableObject
 {
-    public abstract class ConnectableChildObjectBase : ConnectableObjectBase
-    {
-        private float curvePrecision = 0.1f;
-        public float CurvePrecision
-        {
-            get => curvePrecision;
-            set => Set(ref curvePrecision, value <= 0 ? 0.01f : value);
-        }
+	public abstract class ConnectableChildObjectBase : ConnectableObjectBase
+	{
+		public override LaneType LaneType => ReferenceStartObject?.LaneType ?? default;
 
-        private ICurveInterpolaterFactory curveInterpolaterFactory = DefaultCurveInterpolaterFactory.Default;
-        public ICurveInterpolaterFactory CurveInterpolaterFactory
-        {
-            get => curveInterpolaterFactory;
-            set => Set(ref curveInterpolaterFactory, value);
-        }
+		public bool IsEndObject => NextObject is null;
 
-        public bool IsAnyControlSelecting => PathControls.Any(x => x.IsSelected);
+		private float curvePrecision = 0.025f;
+		public float CurvePrecision
+		{
+			get => curvePrecision;
+			set => Set(ref curvePrecision, value <= 0 ? 0.01f : value);
+		}
 
-        public ConnectableStartObject ReferenceStartObject { get; set; }
-        public ConnectableObjectBase PrevObject { get; set; }
-        private int recordId = int.MinValue;
-        internal int CacheRecoveryChildIndex { get; set; } = -1;
-        public override int RecordId { get => ReferenceStartObject?.RecordId ?? recordId; set => Set(ref recordId, value); }
-        private List<LaneCurvePathControlObject> pathControls = new();
-        public IReadOnlyList<LaneCurvePathControlObject> PathControls => pathControls;
-        public bool IsCurvePath => PathControls.Count > 0;
+		private ICurveInterpolaterFactory curveInterpolaterFactory = XGridLimitedCurveInterpolaterFactory.Default;
+		public ICurveInterpolaterFactory CurveInterpolaterFactory
+		{
+			get => curveInterpolaterFactory;
+			set => Set(ref curveInterpolaterFactory, value);
+		}
 
-        public void AddControlObject(LaneCurvePathControlObject controlObj)
-        {
+		public bool IsAnyControlSelecting => PathControls.Any(x => x.IsSelected);
+
+		private ConnectableObjectBase prevObject;
+		public ConnectableObjectBase PrevObject
+		{
+			get => prevObject;
+			set
+			{
+				if (prevObject is not null)
+					prevObject.NextObject = default;
+				Set(ref prevObject, value);
+				if (prevObject is not null)
+					prevObject.NextObject = this;
+				NotifyRefreshPaths();
+			}
+		}
+
+		private ConnectableStartObject referenceStartObject;
+		public override ConnectableStartObject ReferenceStartObject => referenceStartObject;
+
+		private int recordId = int.MinValue;
+		internal int CacheRecoveryChildIndex { get; set; } = -1;
+		public override int RecordId { get => ReferenceStartObject?.RecordId ?? recordId; set => Set(ref recordId, value); }
+
+		private List<LaneCurvePathControlObject> pathControls = new();
+		public IReadOnlyList<LaneCurvePathControlObject> PathControls => pathControls;
+
+		public bool IsCurvePath => PathControls.Count > 0;
+		public bool IsVaildPath
+		{
+			get
+			{
+				if (cacheGeneratedPath is null)
+					RegeneratePaths();
+
+				return cachedIsVaild;
+			}
+		}
+
+		private bool cachedIsVaild = false;
+		private List<(Vector2 pos, bool isVaild)> cacheGeneratedPath = default;
+
+		public void SetReferenceStartObject(ConnectableStartObject refStart)
+		{
+			referenceStartObject = refStart;
+		}
+
+		public void AddControlObject(LaneCurvePathControlObject controlObj)
+		{
+			InsertControlObject(PathControls.Count, controlObj);
+		}
+
+		public void InsertControlObject(int index, LaneCurvePathControlObject controlObj)
+		{
 #if DEBUG
-            if (controlObj.RefCurveObject is not null)
-                throw new Exception("controlObj is using");
+			if (controlObj.RefCurveObject is not null)
+				throw new Exception("controlObj is using");
 #endif
 
-            pathControls.Add(controlObj);
-            controlObj.Index = PathControls.Count;
-            controlObj.PropertyChanged += ControlObj_PropertyChanged;
-            controlObj.RefCurveObject = this;
-            NotifyOfPropertyChange(() => PathControls);
-        }
+			pathControls.Insert(index, controlObj);
+			for (int i = index; i < pathControls.Count; i++)
+				pathControls[i].Index = i;
+			controlObj.PropertyChanged += ControlObj_PropertyChanged;
+			controlObj.RefCurveObject = this;
+			NotifyRefreshPaths();
+			NotifyOfPropertyChange(() => PathControls);
+		}
 
-        private void ControlObj_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            switch (e.PropertyName)
-            {
-                case nameof(IsSelected):
-                    NotifyOfPropertyChange(() => IsAnyControlSelecting);
-                    break;
-                case nameof(TGrid):
-                case nameof(XGrid):
-                    NotifyOfPropertyChange(e.PropertyName);
-                    break;
-                default:
-                    break;
-            }
-        }
+		private void ControlObj_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		{
+			switch (e.PropertyName)
+			{
+				case nameof(IsSelected):
+					NotifyOfPropertyChange(() => IsAnyControlSelecting);
+					break;
+				case nameof(TGrid):
+				case nameof(XGrid):
+					NotifyRefreshPaths();
+					NotifyOfPropertyChange(e.PropertyName);
+					break;
+				default:
+					break;
+			}
+		}
 
-        public void RemoveControlObject(LaneCurvePathControlObject controlObj)
-        {
-            if (pathControls.Remove(controlObj))
-            {
-                controlObj.RefCurveObject = null;
-                controlObj.PropertyChanged -= ControlObj_PropertyChanged;
-                NotifyOfPropertyChange(() => PathControls);
-            }
-        }
+		internal void NotifyRefreshPaths()
+		{
+			ObjectPool<List<(Vector2 pos, bool isVaild)>>.Return(cacheGeneratedPath);
+			cacheGeneratedPath = default;
+			cachedIsVaild = default;
+		}
 
-        public IEnumerable<Vector2> GridBasePoints => PathControls
-            .AsEnumerable<OngekiMovableObjectBase>()
-            .Prepend(PrevObject)
-            .Append(this)
-            .OfType<OngekiMovableObjectBase>()
-            .Select(x => new Vector2(x.XGrid.TotalGrid, x.TGrid.TotalGrid));
+		private void RegeneratePaths()
+		{
+			if (cacheGeneratedPath is null)
+				cacheGeneratedPath = ObjectPool<List<(Vector2 pos, bool isVaild)>>.Get();
+			cacheGeneratedPath.Clear();
 
-        public IEnumerable<(Vector2 pos, bool isVaild)> GenPath()
-        {
-            int calcSign(Vector2 a, Vector2 b)
-            {
-                if (a.Y == b.Y)
-                    return 1;
+			var isVaild = true;
+			foreach (var p in GenerateConnectionPaths())
+			{
+				cacheGeneratedPath.Add(p);
+				isVaild = isVaild && p.isVaild;
+			}
 
-                return Math.Sign(b.Y - a.Y);
-            }
+			cachedIsVaild = isVaild;
+		}
 
-            using var d = GridBasePoints.ToListWithObjectPool(out var points);
-            if (points.Count <= 2)
-            {
-                var fromP = points[0];
-                var toP = points[1];
-                yield return (fromP, true);
-                yield return (toP, toP.Y >= fromP.Y);
-                yield break;
-            }
+		public void RemoveControlObject(LaneCurvePathControlObject controlObj)
+		{
+			if (pathControls.Remove(controlObj))
+			{
+				controlObj.RefCurveObject = null;
+				controlObj.PropertyChanged -= ControlObj_PropertyChanged;
+				NotifyRefreshPaths();
+				NotifyOfPropertyChange(() => PathControls);
+			}
+		}
 
-            var prevPos = points[0];
-            var prevSign = 0;
-            var step = CurvePrecision;
-            var isVaild = true;
+		public IEnumerable<Vector2> GridBasePoints => PathControls
+			.AsEnumerable<OngekiMovableObjectBase>()
+			.Prepend(PrevObject)
+			.Append(this)
+			.OfType<OngekiMovableObjectBase>()
+			.Select(x => new Vector2(x.XGrid.TotalGrid, x.TGrid.TotalGrid));
 
-            var t = 0f;
-            while (true)
-            {
-                var curP = BezierCurve.CalculatePoint(points, t);
-                var sign = calcSign(prevPos, curP);
+		public IEnumerable<(Vector2 pos, bool isVaild)> GenerateConnectionPaths()
+		{
+			int calcSign(Vector2 a, Vector2 b)
+			{
+				if (a.Y == b.Y)
+					return 1;
 
-                if (prevSign != sign && prevSign != 0)
-                    isVaild = isVaild && false;
+				return Math.Sign(b.Y - a.Y);
+			}
 
-                prevPos = curP;
-                prevSign = sign;
+			using var d = GridBasePoints.ToListWithObjectPool(out var points);
+			if (points.Count <= 2)
+			{
+				var fromP = points[0];
+				var toP = points[1];
+				yield return (fromP, true);
+				yield return (toP, toP.Y >= fromP.Y);
+				yield break;
+			}
 
-                yield return (curP, isVaild);
+			var prevPos = points[0];
+			var prevSign = 0;
+			var step = CurvePrecision;
+			var isVaild = true;
 
-                if (t >= 1)
-                    break;
+			var t = 0f;
+			while (true)
+			{
+				var curP = BezierCurve.CalculatePoint(points, t);
+				var sign = calcSign(prevPos, curP);
 
-                t = MathF.Min(1, t + step);
-            }
-        }
+				if (prevSign != sign && prevSign != 0)
+					isVaild = isVaild && false;
 
-        public XGrid CalulateXGrid(TGrid tGrid)
-        {
-            if (PathControls.Count > 0)
-            {
-                Vector2? prevVec2 = null;
-                var totalGrid = tGrid.TotalGrid;
+				prevPos = curP;
+				prevSign = sign;
 
-                foreach ((var gridVec2, var isVaild) in GenPath())
-                {
-                    if (!isVaild)
-                        return default;
+				yield return (curP, isVaild);
 
-                    if (totalGrid <= gridVec2.Y)
-                    {
-                        prevVec2 = prevVec2 ?? gridVec2;
+				if (t >= 1)
+					break;
 
-                        var fromXGrid = new TGrid(prevVec2.Value.Y / TGrid.ResT);
-                        fromXGrid.NormalizeSelf();
-                        var fromTGrid = new XGrid(prevVec2.Value.X / XGrid.ResX);
-                        fromTGrid.NormalizeSelf();
-                        var toTGrid = new TGrid(gridVec2.Y / TGrid.ResT);
-                        toTGrid.NormalizeSelf();
-                        var toXGrid = new XGrid(gridVec2.X / XGrid.ResX);
-                        toXGrid.NormalizeSelf();
+				t = MathF.Min(1, t + step);
+			}
+		}
 
-                        var xGrid = MathUtils.CalculateXGridFromBetweenObjects(fromXGrid, fromTGrid, toTGrid, toXGrid, tGrid);
+		public IReadOnlyList<(Vector2 pos, bool isVaild)> GetConnectionPaths()
+		{
+			if (cacheGeneratedPath is null)
+				RegeneratePaths();
 
-                        //Log.LogDebug($"fromXGrid:{fromXGrid} fromTGrid:{fromTGrid} fromTGrid:{fromTGrid} fromTGrid:{fromTGrid} tGrid:{tGrid} -> {xGrid}");
-                        return xGrid;
-                    }
+			return cacheGeneratedPath;
+		}
 
-                    prevVec2 = gridVec2;
-                }
+		public double? CalulateXGridTotalGrid(double totalTGrid)
+		{
+			if (PathControls.Count > 0)
+			{
+				Vector2? prevVec2 = null;
 
-                return default;
-            }
-            else
-            {
-                //就在当前[prev,cur]范围内，那么就插值计算咯
-                var xGrid = MathUtils.CalculateXGridFromBetweenObjects(PrevObject.TGrid, PrevObject.XGrid, TGrid, XGrid, tGrid);
-                return xGrid;
-            }
-        }
+				foreach ((var gridVec2, var isVaild) in GetConnectionPaths())
+				{
+					if (!isVaild)
+						return default;
 
-        public bool CheckCurveVaild()
-        {
-            return GenPath().All(x => x.isVaild);
-        }
+					if (totalTGrid <= gridVec2.Y)
+					{
+						prevVec2 = prevVec2 ?? gridVec2;
 
-        public override IEnumerable<IDisplayableObject> GetDisplayableObjects()
-        {
-            return PathControls.AsEnumerable<IDisplayableObject>().Append(this);
-        }
+						var fromXGrid = prevVec2.Value.X;
+						var fromTGrid = prevVec2.Value.Y;
+						var toTGrid = gridVec2.Y;
+						var toXGrid = gridVec2.X;
 
-        public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
-        {
-            return base.CheckVisiable(minVisibleTGrid, maxVisibleTGrid) || (TGrid > maxVisibleTGrid && PrevObject is not null && PrevObject.TGrid < minVisibleTGrid);
-        }
+						var xTotalGrid = MathUtils.CalculateXFromTwoPointFormFormula(totalTGrid, fromXGrid, fromTGrid, toXGrid, toTGrid);
 
-        public override string ToString() => $"{base.ToString()} {RecordId} Ref:{ReferenceStartObject} {(PathControls.Count > 0 ? $"CurveCount:{PathControls.Count}" : string.Empty)}";
+						//Log.LogDebug($"fromXGrid:{fromXGrid} fromTGrid:{fromTGrid} fromTGrid:{fromTGrid} fromTGrid:{fromTGrid} tGrid:{tGrid} -> {xGrid}");
+						return xTotalGrid;
+					}
 
-        public override void Copy(OngekiObjectBase fromObj, OngekiFumen fumen)
-        {
-            base.Copy(fromObj, fumen);
+					prevVec2 = gridVec2;
+				}
 
-            if (fromObj is not ConnectableChildObjectBase from)
-                return;
+				return default;
+			}
+			else
+			{
+				//就在当前[prev,cur]范围内，那么就插值计算咯
+				var xGrid = MathUtils.CalculateXFromTwoPointFormFormula(totalTGrid, PrevObject.XGrid.TotalGrid, PrevObject.TGrid.TotalGrid, XGrid.TotalGrid, TGrid.TotalGrid);
+				return xGrid;
+			}
+		}
 
-            RecordId = -Math.Abs(from.RecordId);
-            ReferenceStartObject = null;
-            PrevObject = null;
-            CurvePrecision = from.CurvePrecision;
-            CurveInterpolaterFactory = from.CurveInterpolaterFactory;
-            foreach (var cp in PathControls)
-            {
-                var newCP = new LaneCurvePathControlObject();
-                newCP.Copy(cp, fumen);
-                AddControlObject(newCP);
-            }
-        }
+		public XGrid CalulateXGrid(TGrid tGrid)
+		{
+			if (CalulateXGridTotalGrid(tGrid.TotalGrid) is not double totalGrid)
+				return default;
+			var xGrid = new XGrid(0, (int)totalGrid);
+			xGrid?.NormalizeSelf();
+			return xGrid;
+		}
 
-        public IEnumerable<ConnectableChildObjectBase> InterpolateCurveChildren(ICurveInterpolaterFactory factory = default)
-        {
-            var to = ReferenceStartObject.Children.FindNextOrDefault(this);
-            var itor = (factory ?? CurveInterpolaterFactory).CreateInterpolaterForRange(this, to);
+		public bool CheckCurveVaild()
+		{
+			return GetConnectionPaths().All(x => x.isVaild);
+		}
 
-            while (true)
-            {
-                if (itor.EnumerateNext() is not CurvePoint point)
-                    break;
+		public override IEnumerable<IDisplayableObject> GetDisplayableObjects()
+		{
+			return PathControls.AsEnumerable<IDisplayableObject>().Append(this);
+		}
 
-                var newNext = LambdaActivator.CreateInstance(ReferenceStartObject.NextType) as ConnectableChildObjectBase;
+		public override bool CheckVisiable(TGrid minVisibleTGrid, TGrid maxVisibleTGrid)
+		{
+			return base.CheckVisiable(minVisibleTGrid, maxVisibleTGrid) || (TGrid > maxVisibleTGrid && PrevObject is not null && PrevObject.TGrid < minVisibleTGrid);
+		}
 
-                newNext.TGrid = point.TGrid;
-                newNext.XGrid = point.XGrid;
+		public override string ToString() => $"{base.ToString()} {(PathControls.Count > 0 ? $"CurveCount[{PathControls.Count}]" : string.Empty)} RefStart[{ReferenceStartObject}]";
 
-                yield return newNext;
-            }
-        }
-    }
+		public override void Copy(OngekiObjectBase fromObj)
+		{
+			base.Copy(fromObj);
+
+			if (fromObj is not ConnectableChildObjectBase from)
+				return;
+
+			RecordId = -Math.Abs(from.RecordId);
+			SetReferenceStartObject(null);
+			PrevObject = null;
+			CurvePrecision = from.CurvePrecision;
+			CurveInterpolaterFactory = from.CurveInterpolaterFactory;
+			foreach (var cp in from.PathControls)
+			{
+				var newCP = new LaneCurvePathControlObject();
+				newCP.Copy(cp);
+				AddControlObject(newCP);
+			}
+		}
+
+		public IEnumerable<ConnectableChildObjectBase> InterpolateCurveChildren(ICurveInterpolaterFactory factory = default)
+		{
+			var to = ReferenceStartObject.Children.FindNextOrDefault(this);
+			var itor = (factory ?? CurveInterpolaterFactory).CreateInterpolaterForRange(this, to);
+
+			while (true)
+			{
+				if (itor.EnumerateNext() is not CurvePoint point)
+					break;
+
+				var newNext = ReferenceStartObject.CreateChildObject();
+
+				newNext.Copy(this);
+				foreach (var ctrl in newNext.PathControls.ToArray())
+					newNext.RemoveControlObject(ctrl);
+
+				newNext.TGrid = point.TGrid;
+				newNext.XGrid = point.XGrid;
+
+				yield return newNext;
+			}
+		}
+	}
 }

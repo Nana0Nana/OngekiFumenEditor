@@ -1,306 +1,261 @@
 ﻿using Caliburn.Micro;
 using Gemini.Framework;
 using Gemini.Framework.Services;
-using Microsoft.Win32;
 using OngekiFumenEditor.Kernel.Audio;
-using OngekiFumenEditor.Modules.AudioPlayerToolViewer.Utils;
+using OngekiFumenEditor.Modules.AudioPlayerToolViewer.Models;
 using OngekiFumenEditor.Modules.FumenVisualEditor;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Kernel;
 using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels;
-using OngekiFumenEditor.UI.Controls;
+using OngekiFumenEditor.Properties;
 using OngekiFumenEditor.Utils;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.Composition;
-using System.Diagnostics;
-using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace OngekiFumenEditor.Modules.AudioPlayerToolViewer.ViewModels
 {
-    [Export(typeof(IAudioPlayerToolViewer))]
-    public class AudioPlayerToolViewerViewModel : Tool, IAudioPlayerToolViewer
-    {
-        public override PaneLocation PreferredLocation => PaneLocation.Bottom;
+	[Export(typeof(IAudioPlayerToolViewer))]
+	public partial class AudioPlayerToolViewerViewModel : Tool, IAudioPlayerToolViewer, IDisposable
+	{
+		public override PaneLocation PreferredLocation => PaneLocation.Bottom;
 
-        private float sliderDraggingValue = 0;
-        private bool isSliderDragging = false;
-        public float SliderValue
-        {
-            get
-            {
-                var time = isSliderDragging ?
-                sliderDraggingValue :
-                (float)(AudioPlayer?.CurrentTime.TotalMilliseconds ?? 0);
-                return time;
-            }
-            set
-            {
-                if (isSliderDragging)
-                    sliderDraggingValue = value;
-                NotifyOfPropertyChange(() => SliderValue);
-            }
-        }
+		private float sliderDraggingValue = 0;
+		private bool isSliderDragging = false;
+		public float SliderValue
+		{
+			get
+			{
+				var time = isSliderDragging ?
+				sliderDraggingValue :
+				(float)(AudioPlayer?.CurrentTime.TotalMilliseconds ?? 0);
+				return time;
+			}
+			set
+			{
+				if (isSliderDragging)
+					sliderDraggingValue = value;
+				NotifyOfPropertyChange(() => SliderValue);
+			}
+		}
 
-        private FumenVisualEditorViewModel editor = default;
-        public FumenVisualEditorViewModel Editor
-        {
-            get
-            {
-                return editor;
-            }
-            set
-            {
-                Set(ref editor, value);
-                AudioPlayer?.Dispose();
-                fumenSoundPlayer?.Stop();
-                scrollAnimationClearFunc?.Invoke();
-                LoadAudio();
-                NotifyOfPropertyChange(() => IsAudioButtonEnabled);
-            }
-        }
+		private FumenVisualEditorViewModel editor = default;
+		public FumenVisualEditorViewModel Editor
+		{
+			get
+			{
+				return editor;
+			}
+			set
+			{
+				Set(ref editor, value);
+				FumenSoundPlayer?.Clean();
+				AudioPlayer = Editor?.AudioPlayer;
+			}
+		}
 
-        private IAudioPlayer audioPlayer = default;
-        public IAudioPlayer AudioPlayer
-        {
-            get => audioPlayer;
-            set
-            {
-                this.RegisterOrUnregisterPropertyChangeEvent(audioPlayer, value, OnAudioPlayerPropChanged);
-                Set(ref audioPlayer, value);
-                NotifyOfPropertyChange(() => IsAudioButtonEnabled);
-            }
-        }
+		private IAudioPlayer audioPlayer;
+		public IAudioPlayer AudioPlayer
+		{
+			get => audioPlayer;
+			private set
+			{
+				if (audioPlayer is not null)
+					audioPlayer.OnPlaybackFinished -= OnPlaybackFinished;
+				Set(ref audioPlayer, value);
+				if (audioPlayer is not null)
+					audioPlayer.OnPlaybackFinished += OnPlaybackFinished;
 
-        const int SoundControlLength = 16;
+				PrepareWaveform(AudioPlayer);
+				NotifyOfPropertyChange(() => IsAudioButtonEnabled);
+			}
+		}
 
-        private IFumenSoundPlayer fumenSoundPlayer = default;
-        public IFumenSoundPlayer FumenSoundPlayer
-        {
-            get => fumenSoundPlayer;
-            set
-            {
-                Set(ref fumenSoundPlayer, value);
-                var soundControl = FumenSoundPlayer.SoundControl;
-                for (int i = 0; i < SoundControlLength; i++)
-                    SoundControls[i] = soundControl.HasFlag((SoundControl)(1 << i));
-                NotifyOfPropertyChange(() => SoundControls);
-            }
-        }
+		private void OnPlaybackFinished()
+		{
+			Dispatcher.CurrentDispatcher.Invoke(() =>
+			{
+				Log.LogInfo($"OnPlaybackFinished()~~");
+				OnStopButtonClicked();
+				if (AudioPlayer is not null)
+				{
+					var audioTime = AudioPlayer.Duration - TimeSpan.FromSeconds(1);
+					Editor.ScrollTo(audioTime);
+				}
+			});
+		}
 
-        public bool[] SoundControls { get; set; } = new bool[SoundControlLength];
+		private IFumenSoundPlayer fumenSoundPlayer = default;
+		public IFumenSoundPlayer FumenSoundPlayer
+		{
+			get => fumenSoundPlayer;
+			set
+			{
+				Set(ref fumenSoundPlayer, value);
 
-        public float SoundVolume
-        {
-            get => IoC.Get<IAudioManager>().SoundVolume;
-            set
-            {
-                IoC.Get<IAudioManager>().SoundVolume = value;
-                NotifyOfPropertyChange(() => SoundVolume);
-            }
-        }
+				//init SoundControls
+				var soundControl = FumenSoundPlayer.SoundControl;
+				var length = Enum.GetValues<SoundControl>().Length;
+				for (int i = 0; i < length; i++)
+					SoundControls[i] = soundControl.HasFlag((SoundControl)(1 << i));
+				NotifyOfPropertyChange(() => SoundControls);
 
-        private void OnAudioPlayerPropChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(IAudioPlayer.CurrentTime))
-                NotifyOfPropertyChange(() => SliderValue);
-        }
+				//init SoundVolumes
+				var sounds = Enum.GetValues<SoundControl>();
+				SoundVolumes = sounds.Select(x => new SoundVolumeProxy(value, x)).Where(x => x.IsValid).ToArray();
+				NotifyOfPropertyChange(() => SoundVolumes);
+			}
+		}
 
-        private System.Action scrollAnimationClearFunc = default;
-        public bool IsAudioButtonEnabled => AudioPlayer is not null;
+		public bool[] SoundControls { get; set; } = new bool[Enum.GetValues<SoundControl>().Length];
 
-        public AudioPlayerToolViewerViewModel()
-        {
-            DisplayName = "音频播放";
-            FumenSoundPlayer = IoC.Get<IFumenSoundPlayer>();
-            IoC.Get<IEditorDocumentManager>().OnActivateEditorChanged += OnActivateEditorChanged;
-            Editor = IoC.Get<IEditorDocumentManager>().CurrentActivatedEditor;
-        }
+		public SoundVolumeProxy[] SoundVolumes { get; set; } = new SoundVolumeProxy[0];
 
-        private void OnActivateEditorChanged(FumenVisualEditorViewModel @new, FumenVisualEditorViewModel old)
-        {
-            Editor = @new;
-            this.RegisterOrUnregisterPropertyChangeEvent(old, @new, OnEditorPropertyChanged);
-        }
+		public float SoundVolume
+		{
+			get => IoC.Get<IAudioManager>().SoundVolume;
+			set
+			{
+				IoC.Get<IAudioManager>().SoundVolume = value;
+				NotifyOfPropertyChange(() => SoundVolume);
+			}
+		}
 
-        private void OnEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName != nameof(FumenVisualEditorViewModel.EditorProjectData))
-                return;
-            Editor = Editor;
-        }
+		public bool IsAudioButtonEnabled => AudioPlayer is not null;
 
-        private async void LoadAudio()
-        {
-            if (string.IsNullOrWhiteSpace(Editor?.EditorProjectData?.AudioFilePath))
-                return;
-            var audioPlayer = await IoC.Get<IAudioManager>().LoadAudioAsync(Editor.EditorProjectData.AudioFilePath);
-            AudioPlayer = audioPlayer;
-        }
+		public AudioPlayerToolViewerViewModel()
+		{
+			DisplayName = Resources.AudioPlayerToolViewer;
+			FumenSoundPlayer = IoC.Get<IFumenSoundPlayer>();
+			IoC.Get<IEditorDocumentManager>().OnActivateEditorChanged += OnActivateEditorChanged;
+			Editor = IoC.Get<IEditorDocumentManager>().CurrentActivatedEditor;
 
-        public void OnPlayOrPauseButtonClicked()
-        {
-            if (AudioPlayer is null)
-                return;
+			CompositionTarget.Rendering += CompositionTarget_Rendering;
+		}
 
-            Editor.LockAllUserInteraction();
-            if (scrollAnimationClearFunc is null)
-                InitPreviewActions();
+		private void OnActivateEditorChanged(FumenVisualEditorViewModel @new, FumenVisualEditorViewModel old)
+		{
+			Editor = @new;
+			this.RegisterOrUnregisterPropertyChangeEvent(old, @new, OnEditorPropertyChanged);
+		}
 
-            if (AudioPlayer.IsPlaying)
-                OnPauseButtonClicked();
-            else
-                OnPlayOrResumeButtonClicked();
-        }
+		private void OnEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			switch (e.PropertyName)
+			{
+				case nameof(FumenVisualEditorViewModel.EditorProjectData):
+					Editor = Editor;
+					break;
+				case nameof(FumenVisualEditorViewModel.AudioPlayer):
+					AudioPlayer = Editor?.AudioPlayer;
+					break;
+				default:
+					break;
+			}
+		}
 
-        private async void InitPreviewActions()
-        {
-            scrollAnimationClearFunc?.Invoke();
-            await fumenSoundPlayer.Init(Editor, AudioPlayer);
-            var scrollViewer = Editor.AnimatedScrollViewer;
-            //var stopwatch = new Stopwatch();
-            EventHandler func = (e, d) =>
-            {
-                if (AudioPlayer is null || Editor is null)
-                    return;
-                var audioTime = AudioPlayer.CurrentTime;
-                NotifyOfPropertyChange(() => SliderValue);
-                var scrollOffset = Editor.CalculateYFromAudioTime(audioTime);
-                scrollViewer.CurrentVerticalOffset = Math.Max(0, scrollOffset);
-            };
-            CompositionTarget.Rendering += func;
-            scrollAnimationClearFunc = () =>
-            {
-                CompositionTarget.Rendering -= func;
-                scrollAnimationClearFunc = default;
-            };
-        }
+		private void CompositionTarget_Rendering(object sender, EventArgs e)
+		{
+			if (AudioPlayer is null)
+				return;
+			if (!AudioPlayer.IsPlaying)
+				return;
+			Process(AudioPlayer.CurrentTime);
+		}
 
-        private void OnPauseButtonClicked()
-        {
-            fumenSoundPlayer.Pause();
-            AudioPlayer.Pause();
-        }
 
-        private void OnPlayOrResumeButtonClicked()
-        {
-            fumenSoundPlayer.Play();
-            AudioPlayer.Play();
-        }
+		private void Process(TimeSpan time)
+		{
+			if (Editor is null)
+				return;
+			NotifyOfPropertyChange(() => SliderValue);
+			var tGrid = TGridCalculator.ConvertAudioTimeToTGrid(time, Editor);
+			Editor.ScrollTo(tGrid);
+		}
 
-        public void OnStopButtonClicked()
-        {
-            if (AudioPlayer is null)
-                return;
+		public void OnStopButtonClicked()
+		{
+			//Editor.UnlockAllUserInteraction();
+			FumenSoundPlayer?.Stop();
+			AudioPlayer?.Stop();
+		}
 
-            Editor.UnlockAllUserInteraction();
-            scrollAnimationClearFunc?.Invoke();
-            fumenSoundPlayer.Stop();
-            AudioPlayer.Stop();
-        }
+		public void OnSliderValueStartChanged()
+		{
+			sliderDraggingValue = SliderValue;
+			isSliderDragging = true;
+			Log.LogDebug($"Begin drag, from : {SliderValue}");
+		}
 
-        public void OnJumpButtonClicked()
-        {
-            if (AudioPlayer is null)
-                return;
+		public async void RequestPlayOrPause()
+		{
+			if (AudioPlayer is null)
+			{
+				Log.LogWarn($"音频未加载!");
+				return;
+			}
+			if (!AudioPlayer.IsAvaliable)
+			{
+				Log.LogWarn($"音频还没准备好!");
+				return;
+			}
+			if (AudioPlayer.IsPlaying)
+			{
+				OnStopButtonClicked();
+			}
+			else
+			{
+				await FumenSoundPlayer.Prepare(Editor, AudioPlayer);
+				var tgrid = Editor.GetCurrentTGrid();
+				var seekTo = TGridCalculator.ConvertTGridToAudioTime(tgrid, Editor);
+				Log.LogDebug($"seek to {tgrid}({seekTo})");
+				AudioPlayer.Seek(seekTo, false);
+				FumenSoundPlayer.Seek(seekTo, false);
+			}
+		}
 
-            //todo
-        }
+		public void OnSoundControlSwitchChanged(FrameworkElement sender)
+		{
+			var sc = 0;
+			var length = Enum.GetValues<SoundControl>().Length;
+			for (int i = 0; i < length; i++)
+				sc = sc | (SoundControls[i] ? (1 << i) : 0);
+			if (FumenSoundPlayer is IFumenSoundPlayer player)
+				player.SoundControl = (SoundControl)sc;
 
-        public async void OnOpenFileButtonClicked()
-        {
-            var dialog = new OpenFileDialog();
-            dialog.Multiselect = false;
-            dialog.Filter = FileDialogHelper.GetSupportAudioFileExtensionFilter();
-            if (dialog.ShowDialog() == true)
-            {
-                var filePath = dialog.FileName;
-                try
-                {
-                    AudioPlayer.Dispose();
-                }
-                catch
-                {
+			//Log.LogDebug($"Apply sound control:{(SoundControl)sc}");
+			NotifyOfPropertyChange(() => SoundControls);
+		}
 
-                }
-                try
-                {
-                    Editor.EditorProjectData.AudioFilePath = filePath;
-                    var audio = await IoC.Get<IAudioManager>().LoadAudioAsync(filePath);
-                    AudioPlayer = audio;
-                }
-                catch (Exception e)
-                {
-                    var msg = $"无法打开音频文件:{filePath} ,原因:{e.Message}";
-                    Log.LogError(msg);
-                    MessageBox.Show(msg, "错误");
-                }
-            }
-        }
+		public async void OnReloadSoundFiles()
+		{
+			if (AudioPlayer is null || FumenSoundPlayer is null)
+			{
+				MessageBox.Show(Resources.WaitForAudioAndFumenLoaded);
+				return;
+			}
 
-        public void OnSliderValueChanged()
-        {
-            Log.LogDebug($"seek by OnSliderValueChanged()");
+			if (AudioPlayer.IsPlaying)
+			{
+				MessageBox.Show(Resources.PauseAudioAndFumen);
+				return;
+			}
 
-            if (scrollAnimationClearFunc is null)
-                InitPreviewActions();
-            var seekTo = TimeSpan.FromMilliseconds(SliderValue);
-            AudioPlayer.Seek(seekTo, true);
-            fumenSoundPlayer.Seek(seekTo, true);
+			var result = await FumenSoundPlayer.ReloadSoundFiles();
 
-            Log.LogDebug($"Drag done, seek : {seekTo}");
-            isSliderDragging = false;
-        }
+			if (result)
+			{
+				MessageBox.Show(Resources.SoundLoaded);
+			}
+		}
 
-        public void OnSliderValueStartChanged()
-        {
-            sliderDraggingValue = SliderValue;
-            isSliderDragging = true;
-            Log.LogDebug($"Begin drag, from : {SliderValue}");
-        }
-
-        public void RequestPlayOrPause()
-        {
-            if (AudioPlayer is null)
-            {
-                Log.LogWarn($"音频未加载!");
-                return;
-            }
-
-            if (AudioPlayer.IsPlaying)
-            {
-                scrollAnimationClearFunc?.Invoke();
-                fumenSoundPlayer.Pause();
-                AudioPlayer.Pause();
-            }
-            else
-            {
-                if (scrollAnimationClearFunc is null)
-                    InitPreviewActions();
-                Log.LogDebug($"seek by RequestPlayOrPause()");
-                var tgrid = Editor.GetCurrentJudgeLineTGrid();
-                var seekTo = TGridCalculator.ConvertTGridToAudioTime(tgrid, Editor);
-                AudioPlayer.Seek(seekTo, false);
-                fumenSoundPlayer.Seek(seekTo, false);
-            }
-        }
-
-        public void OnSoundControlSwitchChanged(FrameworkElement sender)
-        {
-            var sc = 0;
-            for (int i = 0; i < SoundControlLength; i++)
-                sc = sc | (SoundControls[i] ? (1 << i) : 0);
-            if (FumenSoundPlayer is IFumenSoundPlayer player)
-                player.SoundControl = (SoundControl)sc;
-
-            //Log.LogDebug($"Apply sound control:{(SoundControl)sc}");
-            NotifyOfPropertyChange(() => SoundControls);
-        }
-    }
+		public void Dispose()
+		{
+			CompositionTarget.Rendering -= CompositionTarget_Rendering;
+		}
+	}
 }

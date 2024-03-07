@@ -2,48 +2,137 @@
     x:Class="OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.Views.FumenVisualEditorGlobalSettingView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:cal="http://caliburnmicro.com"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:markup="clr-namespace:OngekiFumenEditor.UI.Markup"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:vm="clr-namespace:OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.ViewModels"
+    xmlns:res="clr-namespace:OngekiFumenEditor.Properties"
+    xmlns:vm="clr-namespace:OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.ViewModels" xmlns:valueconverters="clr-namespace:OngekiFumenEditor.Kernel.SettingPages.FumenVisualEditor.ValueConverters"
     d:Background="White"
     d:DataContext="{d:DesignInstance IsDesignTimeCreatable=True,
                                      Type=vm:FumenVisualEditorGlobalSettingViewModel}"
-    d:DesignHeight="450"
     d:DesignWidth="800"
     mc:Ignorable="d">
+    <UserControl.Resources>
+        <valueconverters:IntToSolidBrush x:Key="IntToSolidBrush"/>
+    </UserControl.Resources>
     <StackPanel>
-        <GroupBox Header="自动保存">
+        <GroupBox Margin="5" Header="{markup:Translate [AutoSave]}">
             <StackPanel Margin="10">
-                <CheckBox IsChecked="{Binding Setting.IsEnableAutoSave}">是否开启自动保存功能</CheckBox>
+                <CheckBox Content="{markup:Translate [EnableAutoSave]}" IsChecked="{Binding Setting.IsEnableAutoSave}" />
                 <StackPanel
-                    Margin="0,5,0,0"
+                    Margin="0,10,0,0"
                     IsEnabled="{Binding Setting.IsEnableAutoSave}"
                     Orientation="Horizontal">
-                    <TextBlock VerticalAlignment="Center">自动保存频率:</TextBlock>
+                    <TextBlock VerticalAlignment="Center" Text="{markup:Translate [AutoSaveInterval]}" />
                     <TextBox
                         Width="50"
                         Margin="5,0,5,0"
                         Text="{Binding Setting.AutoSaveTimeInterval}">
                     </TextBox>
-                    <TextBlock VerticalAlignment="Center">分钟/次</TextBlock>
+                    <TextBlock VerticalAlignment="Center" Text="{markup:Translate [TimesPerMin]}" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>
-        <GroupBox Header="撤回/重做 (需要重启生效)">
+        <GroupBox Margin="5" Header="{markup:Translate [UndoRedo]}">
             <StackPanel Margin="10">
-                <CheckBox IsChecked="{Binding Setting.IsEnableUndoActionSavingLimit}">限制编辑器撤回操作保存数量</CheckBox>
+                <CheckBox VerticalContentAlignment="Center" IsChecked="{Binding Setting.RecoveryCurrentTimeAfterExecuteAction}">
+                    <TextBlock Text="{markup:Translate [RememberUndoPlace]}" TextWrapping="Wrap" />
+                </CheckBox>
+                <CheckBox
+                    Margin="0,10,0,0"
+                    VerticalContentAlignment="Center"
+                    IsChecked="{Binding Setting.IsEnableUndoActionSavingLimit}">
+                    <TextBlock Text="{markup:Translate [LimitUndoCount]}" TextWrapping="Wrap" />
+                </CheckBox>
                 <StackPanel
-                    Margin="0,5,0,0"
+                    Margin="0,10,0,0"
                     IsEnabled="{Binding Setting.IsEnableUndoActionSavingLimit}"
                     Orientation="Horizontal">
-                    <TextBlock VerticalAlignment="Center">最大保存</TextBlock>
+                    <TextBlock VerticalAlignment="Center" Text="{markup:Translate [SaveMaxCount_Part1]}" />
                     <TextBox
                         Width="50"
                         Margin="5,0,5,0"
                         Text="{Binding Setting.UndoActionSavingLimit}">
                     </TextBox>
-                    <TextBlock VerticalAlignment="Center">个撤回操作</TextBlock>
+                    <TextBlock VerticalAlignment="Center" Text="{markup:Translate [SaveMaxCount_Part2]}" />
                 </StackPanel>
+            </StackPanel>
+        </GroupBox>
+        <GroupBox Margin="5" Header="{markup:Translate [UserInteraction]}">
+            <StackPanel Margin="10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock VerticalAlignment="Center" Text="{markup:Translate [EditorMouseWheelSpeed]}" />
+                    <TextBox
+                        Grid.Column="1"
+                        Width="50"
+                        Margin="5,0,5,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding Setting.MouseWheelLength}">
+                    </TextBox>
+                    <TextBlock
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Text="{markup:Translate [EditorMouseWheelSpeed_Unit]}"
+                        TextWrapping="Wrap" />
+                </Grid>
+                <CheckBox
+                    Margin="0,10,0,0"
+                    Content="{markup:Translate [EnableHorizonScroll]}"
+                    IsChecked="{Binding Setting.EnableXOffset}" />
+                <CheckBox
+                    Margin="0,10,0,0"
+                    Content="{markup:Translate [EnableHorizonScrollBarDisplay]}"
+                    IsChecked="{Binding Setting.ShowXOffsetScrollBar}"
+                    IsEnabled="{Binding Setting.EnableXOffset}" />
+                <CheckBox
+                    Margin="0,10,0,0"
+                    VerticalContentAlignment="Center"
+                    IsChecked="{Binding Setting.EnablePlaceObjectBeyondAudioDuration}">
+                    <TextBlock Text="{markup:Translate [EnablePlaceObjectBeyondAudioDuration]}" TextWrapping="Wrap" />
+                </CheckBox>
+            </StackPanel>
+        </GroupBox>
+        <GroupBox Margin="5" Header="{markup:Translate [Render]}">
+            <GroupBox Header="{markup:Translate [PreviewMode]}" Margin="5">
+                <StackPanel Margin="10">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="{markup:Translate [BellBulletCountOverLimit_Part1]}" />
+                        <TextBox
+                        Width="50"
+                        Margin="5,0,5,0"
+                        Text="{Binding Setting.ParallelCountLimit}">
+                        </TextBox>
+                        <TextBlock VerticalAlignment="Center" Text="{markup:Translate [BellBulletCountOverLimit_Part2]}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,10,0,5" Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="{markup:Translate [BackgroundColor]}"/>
+                        <Border BorderThickness="1" BorderBrush="{Binding Setting.PlayFieldBackgroundColor,Converter={StaticResource IntToSolidBrush},ConverterParameter=True}" CornerRadius="7" Width="60" Height="18" Cursor="Hand" Background="{Binding Setting.PlayFieldBackgroundColor,Converter={StaticResource IntToSolidBrush}}" Margin="10,0" cal:Message.Attach="[Event MouseDown] = [Action OnSelectBackgroundColor($executionContext)]">
+                        </Border>
+                    </StackPanel>
+                    <CheckBox IsChecked="{Binding Setting.EnablePlayFieldDrawing}">
+                        <TextBlock Text="{markup:Translate [EnablePlayFieldDrawing]}"/>
+                    </CheckBox>
+                    <StackPanel IsEnabled="{Binding Setting.EnablePlayFieldDrawing}" Margin="0,5,0,5" Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="{markup:Translate [PlayFieldForegroundColor]}"/>
+                        <Border BorderThickness="1" BorderBrush="{Binding Setting.PlayFieldForegroundColor,Converter={StaticResource IntToSolidBrush},ConverterParameter=True}" CornerRadius="7" Width="60" Height="18" Cursor="Hand" Background="{Binding Setting.PlayFieldForegroundColor,Converter={StaticResource IntToSolidBrush}}" Margin="10,0" cal:Message.Attach="[Event MouseDown] = [Action OnSelectForegroundColor($executionContext)]">
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+        </GroupBox>
+        <GroupBox Margin="5" Header="{markup:Translate [Other]}">
+            <StackPanel Margin="10">
+                <Button
+                    Padding="10,5,10,5"
+                    HorizontalAlignment="Left"
+                    cal:Message.Attach="ClearRecentOpen()"
+                    Content="{markup:Translate [CleanRecentFilesRecords]}" />
             </StackPanel>
         </GroupBox>
     </StackPanel>

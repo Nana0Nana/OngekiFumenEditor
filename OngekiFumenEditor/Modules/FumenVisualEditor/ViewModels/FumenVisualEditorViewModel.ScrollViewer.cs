@@ -1,106 +1,103 @@
-using Caliburn.Micro;
 using Gemini.Framework;
 using OngekiFumenEditor.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.Base;
-using OngekiFumenEditor.Modules.FumenVisualEditor.Views;
-using OngekiFumenEditor.UI.Controls;
 using OngekiFumenEditor.Utils;
 using System;
-using System.Security.Cryptography;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media.Animation;
+using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
 {
-    public partial class FumenVisualEditorViewModel : PersistedDocument
-    {
-        public double MinVisibleCanvasY => ScrollViewerVerticalOffset - Setting.JudgeLineOffsetY;
-        public double MaxVisibleCanvasY => ScrollViewerVerticalOffset + CanvasHeight - Setting.JudgeLineOffsetY;
+	public partial class FumenVisualEditorViewModel : PersistedDocument
+	{
+		private double totalDurationHeight;
+		public double TotalDurationHeight
+		{
+			get => totalDurationHeight;
+			set
+			{
+				value = Math.Max(value, ViewHeight);
+				//Log.LogDebug($"TotalDurationHeight {TotalDurationHeight} -> {value}");
+				Set(ref totalDurationHeight, value);
+			}
+		}
 
-        private double totalDurationHeight;
-        public double TotalDurationHeight
-        {
-            get => totalDurationHeight;
+		private double scrollViewerVerticalOffset;
+		public double ScrollViewerVerticalOffset
+		{
+			get => scrollViewerVerticalOffset;
+			/*
             set
             {
-                value = Math.Max(value, CanvasHeight);
-                //Log.LogDebug($"TotalDurationHeight {TotalDurationHeight} -> {value}");
-                Set(ref totalDurationHeight, value);
+                var val = Math.Min(TotalDurationHeight, Math.Max(0, value));
+                Func<double, FumenVisualEditorViewModel, TGrid> convertToTGrid = IsDesignMode ? TGridCalculator.ConvertYToTGrid_DesignMode : TGridCalculator.ConvertYToTGrid_PreviewMode;
+
+                Set(ref scrollViewerVerticalOffset, val);
+                NotifyOfPropertyChange(() => ReverseScrollViewerVerticalOffset);
+                RecalcViewProjectionMatrix();
+                currentTGrid = convertToTGrid(scrollViewerVerticalOffset, this);
             }
-        }
+            */
+		}
 
-        private double scrollViewerVerticalOffset;
-        public double ScrollViewerVerticalOffset
-        {
-            get => scrollViewerVerticalOffset;
-            set
-            {
-                Set(ref scrollViewerVerticalOffset, value);
-                NotifyOfPropertyChange(() => MaxVisibleCanvasY);
-                NotifyOfPropertyChange(() => MinVisibleCanvasY);
+		public double ReverseScrollViewerVerticalOffset
+		{
+			get => TotalDurationHeight - ScrollViewerVerticalOffset;
+			set
+			{
+				//ScrollViewerVerticalOffset = TotalDurationHeight - value;
+				var val = TotalDurationHeight - value;
+				if (IsDesignMode)
+				{
+					var audioTime = TGridCalculator.ConvertYToAudioTime_DesignMode(val, this);
+					ScrollTo(audioTime);
+				}
+				else
+				{
+					var curTGrid = GetCurrentTGrid();
+					var nextTGrid = TGridCalculator.ConvertYToTGrid_PreviewMode(val, this).OrderBy(x => Math.Abs(x.TotalGrid - curTGrid.TotalGrid)).FirstOrDefault();
 
-                Redraw(RedrawTarget.OngekiObjects | RedrawTarget.TGridUnitLines);
-            }
-        }
+					if (nextTGrid is not null)
+					{
+						var audioTime = TGridCalculator.ConvertTGridToAudioTime(nextTGrid, this);
+						ScrollTo(audioTime);
+					}
+				}
+			}
+		}
 
-        private void RecalculateScrollBar()
-        {
-            Setting.NotifyOfPropertyChange(nameof(Setting.JudgeLineOffsetY));
-        }
+		#region ScrollTo
 
-        public void ScrollViewer_OnScrollChanged(ActionExecutionContext e)
-        {
-            var arg = e.EventArgs as ScrollChangedEventArgs;
-            var scrollViewer = e.Source as AnimatedScrollViewer;
+		public void ScrollTo(ITimelineObject timelineObject)
+		{
+			ScrollTo(timelineObject.TGrid);
+		}
 
-            ScrollViewerVerticalOffset = scrollViewer.ScrollableHeight - arg.VerticalOffset;
-            //Log.LogDebug($"ScrollViewerVerticalOffset = {ScrollViewerVerticalOffset}");
-        }
+		public void ScrollTo(TGrid startTGrid)
+		{
+			if (startTGrid is null)
+				return;
+			var audioTime = TGridCalculator.ConvertTGridToAudioTime(startTGrid, this);
+			ScrollTo(audioTime);
+		}
 
-        #region ScrollViewer Animations
+		public void ScrollTo(TimeSpan audioTime)
+		{
+			var fixedAudioTime = MathUtils.Max(TimeSpan.Zero, MathUtils.Min(audioTime, EditorProjectData.AudioDuration));
+			CurrentPlayTime = fixedAudioTime;
 
-        public AnimatedScrollViewer AnimatedScrollViewer => (GetView() as FumenVisualEditorView)?.myScrollViewer;
+			var val = IsDesignMode ?
+				TGridCalculator.ConvertAudioTimeToY_DesignMode(fixedAudioTime, this) :
+				TGridCalculator.ConvertAudioTimeToY_PreviewMode(fixedAudioTime, this);
+			val = Math.Min(TotalDurationHeight, Math.Max(0, val));
 
-        #endregion
+			scrollViewerVerticalOffset = val;
+			NotifyOfPropertyChange(() => ReverseScrollViewerVerticalOffset);
+			RecalcViewProjectionMatrix();
+		}
 
-        #region ScrollTo
+		#endregion
 
-        public void ScrollTo(IEditorDisplayableViewModel objViewModel)
-        {
-            if ((objViewModel.DisplayableObject as ITimelineObject).TGrid is not TGrid tGrid)
-                throw new Exception("ScrollTo.objViewModel is not a timeline object view model.");
-            ScrollTo(tGrid);
-        }
-
-        public void ScrollTo(DisplayObjectViewModelBase objViewModel)
-        {
-            ScrollTo(objViewModel.CanvasY);
-        }
-
-        public void ScrollTo(ITimelineObject timelineObject)
-        {
-            ScrollTo(timelineObject.TGrid);
-        }
-
-        public void ScrollTo(TGrid startTGrid)
-        {
-            var y = TGridCalculator.ConvertTGridToY(startTGrid, this);
-            ScrollTo(y);
-        }
-
-        public void ScrollTo(double y)
-        {
-            AnimatedScrollViewer.CurrentVerticalOffset = TotalDurationHeight - y - CanvasHeight;
-            //Log.LogInfo($"Scroll to AnimatedScrollViewer.CurrentVerticalOffset = {AnimatedScrollViewer.CurrentVerticalOffset:F2}, ScrollViewerVerticalOffset = {ScrollViewerVerticalOffset:F2}");
-        }
-
-        #endregion
-
-        public TGrid GetCurrentJudgeLineTGrid()
-        {
-            var y = Setting.JudgeLineOffsetY + MinVisibleCanvasY;
-            return TGridCalculator.ConvertYToTGrid(y, this);
-        }
-    }
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public TGrid GetCurrentTGrid() => TGridCalculator.ConvertAudioTimeToTGrid(CurrentPlayTime, this);
+	}
 }

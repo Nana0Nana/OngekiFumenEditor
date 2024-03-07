@@ -1,181 +1,236 @@
-﻿using Caliburn.Micro;
+﻿using AngleSharp.Common;
+using Caliburn.Micro;
 using Gemini.Framework;
 using Gemini.Framework.Services;
 using Gemini.Modules.Toolbox;
 using OngekiFumenEditor.Base;
-using OngekiFumenEditor.Base.EditorObjects;
 using OngekiFumenEditor.Base.OngekiObjects;
+using OngekiFumenEditor.Base.OngekiObjects.BulletPalleteEnums;
 using OngekiFumenEditor.Modules.FumenBulletPalleteListViewer;
 using OngekiFumenEditor.Modules.FumenMetaInfoBrowser.Views;
-using OngekiFumenEditor.Modules.FumenVisualEditor.Base;
+using OngekiFumenEditor.Modules.FumenObjectPropertyBrowser;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Base.DropActions;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Kernel;
 using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.EditorObjects;
-using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.OngekiObjects;
+using OngekiFumenEditor.Properties;
 using OngekiFumenEditor.UI.Dialogs;
 using OngekiFumenEditor.Utils;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.ComponentModel.Composition;
+using System.Data;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 
 namespace OngekiFumenEditor.Modules.FumenMetaInfoBrowser.ViewModels
 {
-    [Export(typeof(IFumenBulletPalleteListViewer))]
-    public class FumenBulletPalleteListViewerViewModel : Tool, IFumenBulletPalleteListViewer
-    {
-        public FumenBulletPalleteListViewerViewModel()
-        {
-            DisplayName = "子弹管理";
-            IoC.Get<IEditorDocumentManager>().OnActivateEditorChanged += OnActivateEditorChanged;
-            Fumen = IoC.Get<IEditorDocumentManager>().CurrentActivatedEditor?.Fumen;
-        }
+	[Export(typeof(IFumenBulletPalleteListViewer))]
+	public class FumenBulletPalleteListViewerViewModel : Tool, IFumenBulletPalleteListViewer
+	{
+		public FumenBulletPalleteListViewerViewModel()
+		{
+			DisplayName = Resources.FumenBulletPalleteListViewer;
+			IoC.Get<IEditorDocumentManager>().OnActivateEditorChanged += OnActivateEditorChanged;
+			Editor = IoC.Get<IEditorDocumentManager>().CurrentActivatedEditor;
+		}
 
-        private void OnActivateEditorChanged(FumenVisualEditorViewModel @new, FumenVisualEditorViewModel old)
-        {
-            Fumen = @new?.Fumen;
-            this.RegisterOrUnregisterPropertyChangeEvent(old, @new, OnEditorPropertyChanged);
-        }
+		private void OnActivateEditorChanged(FumenVisualEditorViewModel @new, FumenVisualEditorViewModel old)
+		{
+			Editor = @new;
+		}
 
-        private void OnEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(FumenVisualEditorViewModel.Fumen))
-                Fumen = (sender as FumenVisualEditorViewModel).Fumen;
-        }
+		private void OnEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			if (e.PropertyName == nameof(FumenVisualEditorViewModel.Fumen))
+			{
+				if (Editor?.Fumen is not null)
+					DataView = CollectionViewSource.GetDefaultView(Editor.Fumen.BulletPalleteList);
+				else
+					DataView = null;
+			}
+		}
 
-        public override PaneLocation PreferredLocation => PaneLocation.Bottom;
+		public override PaneLocation PreferredLocation => PaneLocation.Bottom;
 
-        private OngekiFumen fumen;
-        public OngekiFumen Fumen
-        {
-            get
-            {
-                return fumen;
-            }
-            set
-            {
-                fumen = value;
-                NotifyOfPropertyChange(() => Fumen);
-                NotifyOfPropertyChange(() => IsEnable);
-            }
-        }
+		private string filter;
+		public string Filter
+		{
+			get => filter;
+			set => Set(ref filter, value);
+		}
 
-        public bool IsEnable => Fumen is not null;
+		private FumenVisualEditorViewModel editor;
+		public FumenVisualEditorViewModel Editor
+		{
+			get
+			{
+				return editor;
+			}
+			set
+			{
+				this.RegisterOrUnregisterPropertyChangeEvent(editor, value, OnEditorPropertyChanged);
+				Set(ref editor, value);
+				NotifyOfPropertyChange(() => IsEnable);
 
-        private BulletPallete selectingPallete;
-        public BulletPallete SelectingPallete
-        {
-            get
-            {
-                return selectingPallete;
-            }
-            set
-            {
-                selectingPallete = value;
-                NotifyOfPropertyChange(() => SelectingPallete);
-            }
-        }
+				if (Editor?.Fumen is not null)
+					DataView = CollectionViewSource.GetDefaultView(Editor.Fumen.BulletPalleteList);
+				else
+					DataView = null;
 
-        public void OnCreateNew()
-        {
-            var plattele = new BulletPallete();
-            Fumen.AddObject(plattele);
-        }
+				DataView?.Refresh();
+			}
+		}
 
-        public void OnDeleteSelecting(FumenBulletPalleteListViewerView e)
-        {
-            if (SelectingPallete is not null)
-            {
-                Fumen.RemoveObject(SelectingPallete);
-            }
-        }
+		public bool IsEnable => Editor?.Fumen is not null;
 
-        private bool _draggingItem;
-        private Point _mouseStartPosition;
-        private BulletPallete _selecting;
+		public ObservableCollection<BulletPallete> SelectedItems { get; } = new();
 
-        public void OnMouseMoveAndDragNewBullet (ActionExecutionContext e)
-        {
-            if (!_draggingItem)
-                return;
+		private ICollectionView dataView;
+		public ICollectionView DataView
+		{
+			get => dataView;
+			set
+			{
+				Set(ref dataView, value);
+				OnRefreshFilter();
+			}
+		}
 
-            var arg = e.EventArgs as MouseEventArgs;
+		public void OnCreateNew()
+		{
+			var plattele = new BulletPallete();
+			Editor.Fumen.AddObject(plattele);
+			DataView?.Refresh();
+		}
 
-            Point mousePosition = arg.GetPosition(null);
-            Vector diff = _mouseStartPosition - mousePosition;
+		public void OnDeleteSelecting(FumenBulletPalleteListViewerView e)
+		{
+			foreach (var item in SelectedItems.ToArray())
+				Editor.Fumen.RemoveObject(item);
+			DataView?.Refresh();
+		}
 
-            if (arg.LeftButton == MouseButtonState.Pressed &&
-                (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
-                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance))
-            {
-                var dragData = new DataObject(ToolboxDragDrop.DataFormat, new OngekiObjectDropParam(() =>
-                {
-                    var bulletViewModel = new BulletViewModel();
-                    var bullet = new Bullet()
-                    {
-                        ReferenceBulletPallete = selectingPallete
-                    };
-                    bulletViewModel.ReferenceOngekiObject = bullet;
-                    return bulletViewModel;
-                }));
-                DragDrop.DoDragDrop(e.Source, dragData, DragDropEffects.Move);
-                _draggingItem = false;
-            }
-        }
+		private bool _draggingItem;
+		private Point _mouseStartPosition;
+		private BulletPallete _selecting;
 
-        public void OnMouseMoveAndDragNewBell(ActionExecutionContext e)
-        {
-            if (!_draggingItem)
-                return;
+		public void OnMouseMoveAndDragNewBullet(ActionExecutionContext e)
+		{
+			if (!_draggingItem)
+				return;
+			var arg = e.EventArgs as MouseEventArgs;
 
-            var arg = e.EventArgs as MouseEventArgs;
+			Point mousePosition = arg.GetPosition(null);
+			Vector diff = _mouseStartPosition - mousePosition;
 
-            Point mousePosition = arg.GetPosition(null);
-            Vector diff = _mouseStartPosition - mousePosition;
+			if (arg.LeftButton == MouseButtonState.Pressed &&
+				(Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+				Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance))
+			{
+				var dragData = new DataObject(ToolboxDragDrop.DataFormat, new OngekiObjectDropParam(() =>
+				{
+					var bullet = new Bullet()
+					{
+						ReferenceBulletPallete = _selecting
+					};
+					return bullet;
+				}));
+				DragDrop.DoDragDrop(e.Source, dragData, DragDropEffects.Move);
+				_draggingItem = false;
+			}
+		}
 
-            if (arg.LeftButton == MouseButtonState.Pressed &&
-                (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
-                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance))
-            {
-                var dragData = new DataObject(ToolboxDragDrop.DataFormat, new OngekiObjectDropParam(() =>
-                {
-                    var bulletViewModel = new BellViewModel();
-                    var bullet = new Bell()
-                    {
-                        ReferenceBulletPallete = selectingPallete
-                    };
-                    bulletViewModel.ReferenceOngekiObject = bullet;
-                    return bulletViewModel;
-                }));
-                DragDrop.DoDragDrop(e.Source, dragData, DragDropEffects.Move);
-                _draggingItem = false;
-            }
-        }
+		public void OnMouseMoveAndDragNewBell(ActionExecutionContext e)
+		{
+			if (!_draggingItem)
+				return;
+			var arg = e.EventArgs as MouseEventArgs;
 
-        public void OnMouseLeftButtonDown(ActionExecutionContext e)
-        {
-            var arg = e.EventArgs as MouseEventArgs;
-            if ((arg.LeftButton != MouseButtonState.Pressed) || e.Source?.DataContext is not BulletPallete pallete)
-                return;
+			Point mousePosition = arg.GetPosition(null);
+			Vector diff = _mouseStartPosition - mousePosition;
 
-            _mouseStartPosition = arg.GetPosition(null);
-            _selecting = pallete;
-            _draggingItem = true;
-        }
+			if (arg.LeftButton == MouseButtonState.Pressed &&
+				(Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+				Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance))
+			{
+				var dragData = new DataObject(ToolboxDragDrop.DataFormat, new OngekiObjectDropParam(() =>
+				{
+					var bullet = new Bell()
+					{
+						ReferenceBulletPallete = _selecting
+					};
+					return bullet;
+				}));
+				DragDrop.DoDragDrop(e.Source, dragData, DragDropEffects.Move);
+				_draggingItem = false;
+			}
+		}
 
-        public void OnChangeEditorAxuiliaryLineColor(ActionExecutionContext e)
-        {
-            if (e.Source?.DataContext is not BulletPallete pallete)
-                return;
+		public void OnMouseLeftButtonDown(ActionExecutionContext e)
+		{
+			var arg = e.EventArgs as MouseEventArgs;
+			if ((arg.LeftButton != MouseButtonState.Pressed) || e.Source?.DataContext is not BulletPallete pallete)
+				return;
 
-            var dialog = new CommonColorPicker(() => pallete.EditorAxuiliaryLineColor, color => pallete.EditorAxuiliaryLineColor = color, $"变更 {pallete.StrID} 辅助线颜色");
-            dialog.Show();
-        }
-    }
+			_mouseStartPosition = arg.GetPosition(null);
+			_selecting = pallete;
+			_draggingItem = true;
+		}
+
+		public void OnCopyNewBPL(ActionExecutionContext e)
+		{
+			var arg = e.EventArgs as MouseEventArgs;
+			if ((arg.LeftButton != MouseButtonState.Pressed) || e.Source?.DataContext is not BulletPallete pallete)
+				return;
+
+			var cpBPL = new BulletPallete();
+			cpBPL.Copy(pallete);
+			cpBPL.StrID = null;
+
+			Editor.Fumen.AddObject(cpBPL);
+			DataView?.Refresh();
+		}
+
+		public void OnChangeEditorAxuiliaryLineColor(ActionExecutionContext e)
+		{
+			if (e.Source?.DataContext is not BulletPallete pallete)
+				return;
+
+			var dialog = new CommonColorPicker(() => pallete.EditorAxuiliaryLineColor, color => pallete.EditorAxuiliaryLineColor = color, Resources.ChangeAxuiliaryLineColor.Format(pallete.StrID));
+			dialog.Show();
+		}
+
+		public void OnItemDoubleClick(BulletPallete e)
+		{
+			if (e is null)
+				return;
+
+			Editor.TryCancelAllObjectSelecting();
+			Editor.Fumen.Bells
+				.OfType<IBulletPalleteReferencable>()
+				.Concat(Editor.Fumen.Bullets)
+				.Where(x => x.ReferenceBulletPallete == e)
+				.OfType<ISelectableObject>()
+				.ForEach(x => x.IsSelected = true);
+
+			IoC.Get<IFumenObjectPropertyBrowser>().RefreshSelected(Editor);
+		}
+
+		public void OnRefreshFilter()
+		{
+			if (DataView is ICollectionView view)
+			{
+				view.Filter = string.IsNullOrWhiteSpace(Filter) ? null : (r) =>
+				{
+					if (r is BulletPallete p)
+						return p.ToString().Contains(Filter, StringComparison.InvariantCultureIgnoreCase);
+					return false;
+				};
+			}
+		}
+	}
 }

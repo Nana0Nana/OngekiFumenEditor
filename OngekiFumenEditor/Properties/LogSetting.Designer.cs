@@ -12,8 +12,8 @@ namespace OngekiFumenEditor.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.1.0.0")]
-    internal sealed partial class LogSetting : global::System.Configuration.ApplicationSettingsBase {
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.5.0.0")]
+    public sealed partial class LogSetting : global::System.Configuration.ApplicationSettingsBase {
         
         private static LogSetting defaultInstance = ((LogSetting)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new LogSetting())));
         

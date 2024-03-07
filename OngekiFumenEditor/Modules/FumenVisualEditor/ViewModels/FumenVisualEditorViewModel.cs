@@ -1,30 +1,24 @@
-using AngleSharp.Css.Dom;
-using Caliburn.Micro;
+锘縰sing Caliburn.Micro;
 using Gemini.Framework;
-using Gemini.Modules.Shell.Commands;
 using Microsoft.Win32;
 using OngekiFumenEditor.Base;
-using OngekiFumenEditor.Base.EditorObjects.LaneCurve;
-using OngekiFumenEditor.Base.OngekiObjects;
 using OngekiFumenEditor.Base.OngekiObjects.ConnectableObject;
-using OngekiFumenEditor.Modules.AudioPlayerToolViewer;
-using OngekiFumenEditor.Modules.FumenBulletPalleteListViewer;
-using OngekiFumenEditor.Modules.FumenMetaInfoBrowser;
+using OngekiFumenEditor.Kernel.Audio;
+using OngekiFumenEditor.Kernel.RecentFiles;
+using OngekiFumenEditor.Kernel.Scheduler;
 using OngekiFumenEditor.Modules.FumenObjectPropertyBrowser;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Base;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Kernel;
+using OngekiFumenEditor.Modules.FumenVisualEditor.Kernel.DefaultImpl;
 using OngekiFumenEditor.Modules.FumenVisualEditor.Models;
 using OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels.Dialogs;
-using OngekiFumenEditor.Modules.FumenVisualEditorSettings;
 using OngekiFumenEditor.Parser;
+using OngekiFumenEditor.Properties;
 using OngekiFumenEditor.Utils;
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.ComponentModel.Composition;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -46,9 +40,44 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
             }
             set
             {
+                var prevFumen = editorProjectData?.Fumen;
                 Set(ref editorProjectData, value);
                 RecalculateTotalDurationHeight();
-                Fumen = EditorProjectData.Fumen;
+
+                void setupFumen(OngekiFumen cur, OngekiFumen prev)
+                {
+                    if (prev is not null)
+                    {
+                        prev.BpmList.OnChangedEvent -= OnTimeSignatureListChanged;
+                        prev.MeterChanges.OnChangedEvent -= OnTimeSignatureListChanged;
+                        prev.ObjectModifiedChanged -= OnFumenObjectModifiedChanged;
+                    }
+                    if (cur is not null)
+                    {
+                        cur.BpmList.OnChangedEvent += OnTimeSignatureListChanged;
+                        cur.MeterChanges.OnChangedEvent += OnTimeSignatureListChanged;
+                        cur.ObjectModifiedChanged += OnFumenObjectModifiedChanged;
+                    }
+                    NotifyOfPropertyChange(() => Fumen);
+                }
+
+                setupFumen(editorProjectData?.Fumen, prevFumen);
+            }
+        }
+
+        private IAudioPlayer audioPlayer;
+        public IAudioPlayer AudioPlayer
+        {
+            get
+            {
+                return audioPlayer;
+            }
+            set
+            {
+                if (audioPlayer != value)
+                    audioPlayer?.Dispose();
+
+                Set(ref audioPlayer, value);
             }
         }
 
@@ -56,103 +85,38 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
         {
             switch (e.PropertyName)
             {
-                case nameof(Properties.EditorGlobalSetting.IsEnableUndoActionSavingLimit):
-                case nameof(Properties.EditorGlobalSetting.UndoActionSavingLimit):
-                    UndoRedoManager.UndoCountLimit = Properties.EditorGlobalSetting.Default.IsEnableUndoActionSavingLimit ? Properties.EditorGlobalSetting.Default.UndoActionSavingLimit : null;
-                    break;
-                case nameof(EditorSetting.VerticalDisplayScale):
-                    var beforeHeight = TotalDurationHeight;
+                case nameof(EditorGlobalSetting.VerticalDisplayScale):
                     RecalculateTotalDurationHeight();
-                    var offset = TotalDurationHeight - beforeHeight;
-                    Log.LogDebug($"offset = {offset:F2}");
-                    //ScrollViewerVerticalOffset = Math.Max(0, ScrollViewerVerticalOffset - offset);
+                    var tGrid = GetCurrentTGrid();
+                    ScrollTo(tGrid);
                     break;
-                case nameof(EditorSetting.JudgeLineOffsetY):
-                    NotifyOfPropertyChange(() => MinVisibleCanvasY);
-                    NotifyOfPropertyChange(() => MaxVisibleCanvasY);
+                case nameof(EditorGlobalSetting.JudgeLineOffsetY):
+                case nameof(EditorGlobalSetting.XOffset):
+                    RecalcViewProjectionMatrix();
                     break;
-                case nameof(EditorSetting.XGridUnitSpace):
-                    ClearDisplayingObjectCache();
-                    Redraw(RedrawTarget.XGridUnitLines);
+                case nameof(EditorGlobalSetting.PlayFieldBackgroundColor):
+                    playFieldBackgroundColor = EditorGlobalSetting.Default.PlayFieldBackgroundColor.AsARGBToColor().ToVector4();
                     break;
-                case nameof(EditorSetting.BeatSplit):
-                    //case nameof(EditorSetting.BaseLineY):
-                    Redraw(RedrawTarget.TGridUnitLines | RedrawTarget.ScrollBar);
+                case nameof(EditorGlobalSetting.EnablePlayFieldDrawing):
+                    enablePlayFieldDrawing = EditorGlobalSetting.Default.EnablePlayFieldDrawing;
                     break;
-                case nameof(EditorSetting.XGridDisplayMaxUnit):
-                    ClearDisplayingObjectCache();
-                    Redraw(RedrawTarget.XGridUnitLines);
-                    break;
+                case nameof(EditorGlobalSetting.XGridUnitSpace):
+                case nameof(EditorGlobalSetting.DisplayTimeFormat):
+                case nameof(EditorGlobalSetting.BeatSplit):
+                case nameof(EditorGlobalSetting.XGridDisplayMaxUnit):
                 default:
                     break;
             }
         }
 
-        public void ClearDisplayingObjectCache()
-        {
-            CurrentDisplayEditorViewModels.Clear();
-            EditorViewModels.Clear();
-            Redraw(RedrawTarget.OngekiObjects);
-        }
-
-        public OngekiFumen Fumen
-        {
-            get
-            {
-                return EditorProjectData.Fumen;
-            }
-            set
-            {
-                if (EditorProjectData.Fumen is not null)
-                {
-                    EditorProjectData.Fumen.BpmList.OnChangedEvent -= OnTimeSignatureListChanged;
-                    EditorProjectData.Fumen.MeterChanges.OnChangedEvent -= OnTimeSignatureListChanged;
-                    EditorProjectData.Fumen.ObjectModifiedChanged -= OnFumenObjectModifiedChanged;
-                }
-                if (value is not null)
-                {
-                    value.BpmList.OnChangedEvent += OnTimeSignatureListChanged;
-                    value.MeterChanges.OnChangedEvent += OnTimeSignatureListChanged;
-                    value.ObjectModifiedChanged += OnFumenObjectModifiedChanged;
-                }
-                EditorProjectData.Fumen = value;
-                Redraw(RedrawTarget.All);
-                NotifyOfPropertyChange(() => Fumen);
-            }
-        }
+        public OngekiFumen Fumen => EditorProjectData.Fumen;
 
         private void OnFumenObjectModifiedChanged(OngekiObjectBase sender, PropertyChangedEventArgs e)
         {
-            var objBrowser = IoC.Get<IFumenObjectPropertyBrowser>();
-            var curBrowserObj = objBrowser.OngekiObject;
-
             switch (e.PropertyName)
             {
                 case nameof(ISelectableObject.IsSelected):
-                    if (sender is ISelectableObject selectable)
-                    {
-                        if (!selectable.IsSelected)
-                        {
-                            if (curBrowserObj == sender)
-                                objBrowser.SetCurrentOngekiObject(null, this);
-                            CurrentSelectedObjects.Remove(selectable);
-                        }
-                        else
-                        {
-                            CurrentSelectedObjects.Add(selectable);
-                        }
-                        NotifyOfPropertyChange(() => SelectObjects);
-                    }
-                    break;
                 case nameof(ConnectableChildObjectBase.IsAnyControlSelecting):
-                    foreach (var controlPoint in ((ConnectableChildObjectBase)sender).PathControls)
-                    {
-                        var contains = CurrentSelectedObjects.Contains(controlPoint);
-                        if (controlPoint.IsSelected && !contains)
-                            CurrentSelectedObjects.Add(controlPoint);
-                        else if ((!controlPoint.IsSelected) && contains)
-                            CurrentSelectedObjects.Remove(controlPoint);
-                    }
                     break;
                 default:
                     IsDirty = true;
@@ -163,49 +127,19 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
 
         public void RecalculateTotalDurationHeight()
         {
-            if (EditorProjectData?.AudioDuration is TimeSpan timeSpan)
+            if (EditorProjectData?.AudioDuration is TimeSpan timeSpan && timeSpan > TimeSpan.Zero)
             {
-                TotalDurationHeight = TGridCalculator.ConvertTGridToY(TGridCalculator.ConvertAudioTimeToTGrid(timeSpan, this), this);
+                TotalDurationHeight = ConvertToY(TGridCalculator.ConvertAudioTimeToTGrid(timeSpan, this).TotalUnit);
             }
             else
             {
-                //todo warning
-                TotalDurationHeight = 0;
+                timeSpan = AudioPlayer?.Duration ?? TimeSpan.Zero;
+                TotalDurationHeight = ConvertToY(TGridCalculator.ConvertAudioTimeToTGrid(timeSpan, this).TotalUnit);
             }
         }
 
-        public double CalculateYFromAudioTime(TimeSpan audioTime)
-        {
-            var y = TGridCalculator.ConvertAudioTimeToY(audioTime, this);
-            return TotalDurationHeight - y - CanvasHeight;
-        }
-
-        private double canvasWidth = default;
-        public double CanvasWidth
-        {
-            get => canvasWidth;
-            set
-            {
-                Set(ref canvasWidth, value);
-            }
-        }
-        private double canvasHeight = default;
-        public double CanvasHeight
-        {
-            get => canvasHeight;
-            set
-            {
-                Set(ref canvasHeight, value);
-            }
-        }
-
-        public ObservableCollection<XGridUnitLineViewModel> XGridUnitLineLocations { get; } = new();
-        public ObservableCollection<TGridUnitLineViewModel> TGridUnitLineLocations { get; } = new();
-        public HashSet<IEditorDisplayableViewModel> EditorViewModels { get; } = new();
-        public ObservableCollection<ISelectableObject> CurrentSelectedObjects { get; } = new();
-
-        private bool isDragging;
-        private bool isMouseDown;
+        private bool isSelectRangeDragging;
+        private bool isLeftMouseDown;
 
         private bool brushMode = false;
         public bool BrushMode
@@ -214,7 +148,18 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
             set
             {
                 Set(ref brushMode, value);
-                ToastNotify($"笔刷模式:{(BrushMode ? "开启" : "关闭")}");
+                ToastNotify($"{Resources.BrushMode}{(BrushMode ? Resources.Enable : Resources.Disable)}");
+            }
+        }
+
+        private bool isShowCurveControlAlways = false;
+        public bool IsShowCurveControlAlways
+        {
+            get => isShowCurveControlAlways;
+            set
+            {
+                Set(ref isShowCurveControlAlways, value);
+                ToastNotify($"{Resources.ShowCurveControlAlways}{(IsShowCurveControlAlways ? Resources.Enable : Resources.Disable)}");
             }
         }
 
@@ -222,8 +167,11 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
 
         public FumenVisualEditorViewModel() : base()
         {
+            //replace owned impl
+            UndoRedoManager = new DefaultEditorUndoManager(this);
+
             Properties.EditorGlobalSetting.Default.PropertyChanged += OnSettingPropertyChanged;
-            Log.LogDebug($"UndoRedoManager.UndoCountLimit: {UndoRedoManager.UndoCountLimit}");
+            DisplayName = default;
         }
 
         #region Document New/Save/Load
@@ -236,7 +184,7 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
                 var result = await IoC.Get<IWindowManager>().ShowDialogAsync(dialogViewModel);
                 if (result != true)
                 {
-                    Log.LogInfo($"用户无法完成新建项目向导，关闭此编辑器");
+                    Log.LogInfo(Resources.CloseEditorByProjectSetupFail);
                     await TryCloseAsync(false);
                     return;
                 }
@@ -246,18 +194,18 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
                     using var fumenFileStream = File.OpenRead(projectData.FumenFilePath);
                     var fumenDeserializer = IoC.Get<IFumenParserManager>().GetDeserializer(projectData.FumenFilePath);
                     if (fumenDeserializer is null)
-                        throw new NotSupportedException($"不支持此谱面文件的解析:{projectData.FumenFilePath}");
+                        throw new NotSupportedException($"{Resources.DeserializeFumenFileFail}{projectData.FumenFilePath}");
                     var fumen = await fumenDeserializer.DeserializeAsync(fumenFileStream);
                     projectData.Fumen = fumen;
                 }
                 EditorProjectData = dialogViewModel.EditorProjectData;
-                Redraw(RedrawTarget.All);
+                AudioPlayer = await IoC.Get<IAudioManager>().LoadAudioAsync(editorProjectData.AudioFilePath);
                 Log.LogInfo($"FumenVisualEditorViewModel DoNew()");
                 await Dispatcher.Yield();
             }
             catch (Exception e)
             {
-                var errMsg = $"无法新建项目:{e.Message}";
+                var errMsg = $"{Resources.CantCreateProject}{e.Message}";
                 Log.LogError(errMsg);
                 MessageBox.Show(errMsg);
                 await TryCloseAsync(false);
@@ -272,22 +220,36 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
                 Log.LogInfo($"FumenVisualEditorViewModel DoLoad() : {filePath}");
                 var projectData = await EditorProjectDataUtils.TryLoadFromFileAsync(filePath);
                 await Load(projectData);
-                ToastNotify("谱面项目和文件加载成功");
+                ToastNotify(Resources.LoadProjectFileAndFumenFile);
+
+                IoC.Get<IEditorRecentFilesManager>().PostRecord(new(filePath, DisplayName, RecentOpenType.NormalDocumentOpen));
             }
             catch (Exception e)
             {
-                var errMsg = $"无法加载项目:{e.Message}";
+                var errMsg = $"{Resources.CantLoadProject}{e.Message}";
                 Log.LogError(errMsg);
                 MessageBox.Show(errMsg);
                 await TryCloseAsync(false);
             }
         }
 
-        public Task Load(EditorProjectDataModel projModel)
+        public async Task Load(EditorProjectDataModel projModel)
         {
-            EditorProjectData = projModel;
-            Redraw(RedrawTarget.All);
-            return Task.CompletedTask;
+            try
+            {
+                EditorProjectData = projModel;
+                AudioPlayer = await IoC.Get<IAudioManager>().LoadAudioAsync(editorProjectData.AudioFilePath);
+
+                var dispTGrid = TGridCalculator.ConvertAudioTimeToTGrid(projModel.RememberLastDisplayTime, this);
+                ScrollTo(dispTGrid);
+            }
+            catch (Exception e)
+            {
+                var errMsg = $"{Resources.CantLoadProject}{e.Message}";
+                Log.LogError(errMsg);
+                MessageBox.Show(errMsg);
+                await TryCloseAsync(false);
+            }
         }
 
         protected override async Task DoSave(string filePath)
@@ -295,10 +257,13 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
             using var _ = StatusBarHelper.BeginStatus("Fumen saving : " + filePath);
             if (string.IsNullOrWhiteSpace(filePath))
             {
-                await DoSaveAs(this);
+                var newProjFilePath = FileDialogHelper.SaveFile(Resources.SaveNewProjectFile, new[] { (FumenVisualEditorProvider.FILE_EXTENSION_NAME, Resources.FumenProjectFile) });
+                if (!string.IsNullOrWhiteSpace(newProjFilePath))
+                    await Save(newProjFilePath);
                 return;
             }
             Log.LogInfo($"FumenVisualEditorViewModel DoSave() : {filePath}");
+            EditorProjectData.RememberLastDisplayTime = TGridCalculator.ConvertTGridToAudioTime(GetCurrentTGrid(), this);
             if (string.IsNullOrWhiteSpace(EditorProjectData.FumenFilePath))
             {
                 //ask fumen file save path before save project.
@@ -308,15 +273,25 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
 
                 if (dialog.ShowDialog() != true)
                 {
-                    MessageBox.Show("无法保存谱面,项目保存取消");
+                    MessageBox.Show(Resources.CancelProjectSaveByFumenSaveFail);
                     return;
                 }
 
                 EditorProjectData.FumenFilePath = dialog.FileName;
             }
 
-            ToastNotify("谱面项目和文件保存成功");
-            await EditorProjectDataUtils.TrySaveToFileAsync(filePath, EditorProjectData);
+            var saveTaskResult = await EditorProjectDataUtils.TrySaveEditorAsync(filePath, EditorProjectData);
+            if (!saveTaskResult.IsSuccess)
+            {
+                Log.LogError(saveTaskResult.ErrorMessage);
+                MessageBox.Show(saveTaskResult.ErrorMessage);
+            }
+            else
+            {
+                DisplayName = default;
+                ToastNotify(Resources.SaveProjectFileAndFumenFile);
+                IoC.Get<IEditorRecentFilesManager>().PostRecord(new(filePath, DisplayName, RecentOpenType.NormalDocumentOpen));
+            }
         }
 
         #endregion
@@ -326,13 +301,16 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
         protected override async Task OnActivateAsync(CancellationToken cancellationToken)
         {
             await base.OnActivateAsync(cancellationToken);
+            await IoC.Get<ISchedulerManager>().AddScheduler(this);
             EditorManager.NotifyActivate(this);
         }
 
         protected override async Task OnDeactivateAsync(bool close, CancellationToken cancellationToken)
         {
             await base.OnDeactivateAsync(close, cancellationToken);
+            await IoC.Get<ISchedulerManager>().RemoveScheduler(this);
             EditorManager.NotifyDeactivate(this);
+            AudioPlayer?.Pause();
         }
 
         protected override async Task OnInitializeAsync(CancellationToken cancellationToken)
@@ -344,19 +322,15 @@ namespace OngekiFumenEditor.Modules.FumenVisualEditor.ViewModels
         public override async Task TryCloseAsync(bool? dialogResult = null)
         {
             await base.TryCloseAsync(dialogResult);
+
+            AudioPlayer?.Pause();
+            AudioPlayer?.Dispose();
+            AudioPlayer = null;
+
             if (dialogResult != false)
                 EditorManager.NotifyDestory(this);
         }
 
         #endregion
-
-        public void AddObject(DisplayObjectViewModelBase viewModel)
-        {
-            if (viewModel is IEditorDisplayableViewModel m)
-                m.OnObjectCreated(viewModel.ReferenceOngekiObject, this);
-            Fumen.AddObject(viewModel.ReferenceOngekiObject);
-            EditorViewModels.Add(viewModel);
-            //Log.LogInfo($"create new display object: {viewModel.ReferenceOngekiObject.GetType().Name}");
-        }
     }
 }
